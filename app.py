@@ -69,12 +69,15 @@ def extract_table_data(image, api_key):
     image.save(buffered, format="JPEG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    # Daftar Model untuk dicoba (Urutan prioritas: Cepat -> Terbaru -> Kuat)
+    # Daftar Model untuk dicoba (Urutan prioritas: Cepat -> Stabil -> Kuat)
+    # Menghapus alias 'latest' yang sering berubah/error 404
     models_to_try = [
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-pro",
-        "gemini-1.5-pro-latest"
+        "gemini-1.5-flash",      # Alias umum (biasanya paling aman)
+        "gemini-1.5-flash-001",  # Versi pinned (pasti ada)
+        "gemini-1.5-flash-002",  # Versi pinned baru
+        "gemini-1.5-pro",        # Alias umum Pro
+        "gemini-1.5-pro-001",    # Versi pinned Pro
+        "gemini-1.5-pro-002"     # Versi pinned Pro baru
     ]
 
     last_error = ""
