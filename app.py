@@ -30,30 +30,8 @@ st.markdown("""
 3. **Anti-Limit:** Jika satu model kuotanya habis (429), sistem otomatis pindah ke model lain.
 """)
 
-# --- SIDEBAR: KUNCI & INPUT MANUAL ---
-with st.sidebar:
-    st.header("1. Konfigurasi API")
-    
-    # Cek apakah ada di Secrets Streamlit Cloud
-    if "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
-        st.success("✅ API Key Terdeteksi dari System")
-    else:
-        api_key = st.text_input("Masukkan Google Gemini API Key", type="password")
-        st.caption("Dapatkan Key gratis di aistudio.google.com")
-    
-    # Bersihkan API Key dari spasi tidak sengaja
-    if api_key:
-        api_key = api_key.strip()
-
-    st.divider()
-    
-    st.header("2. Input Identitas (Manual)")
-    st.warning("Data ini wajib diisi agar Excel memiliki identitas.")
-    input_vessel = st.text_input("Nama Kapal (Vessel Name)", value="Vessel A")
-    input_service = st.text_input("Service / Voyage", value="Service A")
-
-# --- FUNGSI BARU: AUTO-DETECT & SORT MODEL ---
+# --- FUNGSI UTILITY: CACHE DATA MODEL ---
+@st.cache_data(ttl=300) # Cache selama 5 menit biar gak boros kuota cuma buat cek status
 def get_prioritized_models(api_key):
     """
     Mengambil semua model yang tersedia dan mengurutkannya.
@@ -96,6 +74,55 @@ def get_prioritized_models(api_key):
     except Exception:
         return []
 
+# --- SIDEBAR: KUNCI & INPUT MANUAL ---
+with st.sidebar:
+    st.header("1. Konfigurasi API")
+    
+    # Cek apakah ada di Secrets Streamlit Cloud
+    if "GEMINI_API_KEY" in st.secrets:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        st.success("✅ API Key Terdeteksi dari System")
+    else:
+        api_key = st.text_input("Masukkan Google Gemini API Key", type="password")
+        st.caption("Dapatkan Key gratis di aistudio.google.com")
+    
+    # Bersihkan API Key dari spasi tidak sengaja
+    if api_key:
+        api_key = api_key.strip()
+        
+        # --- FITUR BARU: API HEALTH CHECK ---
+        st.divider()
+        st.header("🔍 Status Koneksi")
+        with st.spinner("Mengecek koneksi..."):
+            active_models = get_prioritized_models(api_key)
+            
+        if active_models:
+            st.success("✅ Terhubung & Siap")
+            with st.expander(f"Lihat {len(active_models)} Model Aktif"):
+                st.write(active_models)
+                
+            st.info("""
+            **Info Batas Free Tier:**
+            - 15 Request / Menit
+            - 1.500 Request / Hari
+            
+            *Jika error 429, sistem otomatis pindah model.*
+            """)
+            
+            st.markdown("**Cek Sisa Kuota Realtime:**")
+            st.link_button("📊 Buka Google AI Dashboard", "https://aistudio.google.com/app/plan_information")
+            
+        else:
+            st.error("❌ Koneksi Gagal / API Key Salah")
+
+    st.divider()
+    
+    st.header("2. Input Identitas (Manual)")
+    st.warning("Data ini wajib diisi agar Excel memiliki identitas.")
+    input_vessel = st.text_input("Nama Kapal (Vessel Name)", value="Vessel A")
+    input_service = st.text_input("Service / Voyage", value="Service A")
+
+
 # --- FUNGSI AI (VERSI REST API + FAILOVER) ---
 def extract_table_data(image, api_key):
     
@@ -108,7 +135,7 @@ def extract_table_data(image, api_key):
     image.save(buffered, format="JPEG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    # 3. DAPATKAN KANDIDAT MODEL
+    # 3. DAPATKAN KANDIDAT MODEL (Sudah dicache di atas)
     candidate_models = get_prioritized_models(api_key)
     
     if not candidate_models:
