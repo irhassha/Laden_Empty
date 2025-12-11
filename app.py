@@ -131,16 +131,25 @@ def extract_table_data(image, api_key):
         Analisis gambar tabel operasi pelabuhan ini. Fokus hanya pada angka.
         
         TUGAS: Ekstrak data dan lakukan pemetaan kategori berikut:
-        1. EXPORT (Loading):
+        
+        1. IMPORT (Ambil dari kolom DISCHARGE di gambar):
+           - BOX LADEN = Penjumlahan angka di baris 'FULL' + 'REEFER' + 'OOG' pada kolom DISCHARGE.
+           - BOX EMPTY = Ambil angka di baris 'EMPTY' pada kolom DISCHARGE.
+
+        2. EXPORT (Ambil dari kolom LOADING di gambar):
            - BOX LADEN = Penjumlahan angka di baris 'FULL' + 'REEFER' + 'OOG' pada kolom LOADING.
            - BOX EMPTY = Ambil angka di baris 'EMPTY' pada kolom LOADING.
-        2. TRANSHIPMENT / TS (Baris T/S):
+           
+        3. TRANSHIPMENT / TS (Baris T/S):
            - Ambil angkanya. Jika tidak spesifik, asumsikan Laden.
-        3. SHIFTING:
+           
+        4. SHIFTING:
            - Ambil total dari kolom SHIFTING.
         
         OUTPUT JSON Integer (0 jika kosong):
         {
+            "import_laden_20": int, "import_laden_40": int, "import_laden_45": int,
+            "import_empty_20": int, "import_empty_40": int, "import_empty_45": int,
             "export_laden_20": int, "export_laden_40": int, "export_laden_45": int,
             "export_empty_20": int, "export_empty_40": int, "export_empty_45": int,
             "ts_laden_20": int, "ts_laden_40": int, "ts_laden_45": int,
@@ -218,25 +227,33 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
         if data:
             # --- POST PROCESSING ---
             
-            # 1. Total Box Export
+            # 1. IMPORT (NEW)
+            imp_laden_box = data.get('import_laden_20',0) + data.get('import_laden_40',0) + data.get('import_laden_45',0)
+            imp_empty_box = data.get('import_empty_20',0) + data.get('import_empty_40',0) + data.get('import_empty_45',0)
+            tot_imp_box = imp_laden_box + imp_empty_box
+
+            teus_imp = (data.get('import_laden_20',0) * 1) + (data.get('import_laden_40',0) * 2) + (data.get('import_laden_45',0) * 2.25) + \
+                       (data.get('import_empty_20',0) * 1) + (data.get('import_empty_40',0) * 2) + (data.get('import_empty_45',0) * 2.25)
+
+            # 2. EXPORT
             exp_laden_box = data.get('export_laden_20',0) + data.get('export_laden_40',0) + data.get('export_laden_45',0)
             exp_empty_box = data.get('export_empty_20',0) + data.get('export_empty_40',0) + data.get('export_empty_45',0)
             tot_exp_box = exp_laden_box + exp_empty_box
             
-            # 2. TEUS Export (Rumus: 20=1, 40=2, 45=2.25)
+            # TEUS Export (Rumus: 20=1, 40=2, 45=2.25)
             teus_exp = (data.get('export_laden_20',0) * 1) + (data.get('export_laden_40',0) * 2) + (data.get('export_laden_45',0) * 2.25) + \
                        (data.get('export_empty_20',0) * 1) + (data.get('export_empty_40',0) * 2) + (data.get('export_empty_45',0) * 2.25)
 
-            # 3. Total Box T/S
+            # 3. TRANSHIPMENT
             ts_laden_box = data.get('ts_laden_20',0) + data.get('ts_laden_40',0) + data.get('ts_laden_45',0)
             ts_empty_box = data.get('ts_empty_20',0) + data.get('ts_empty_40',0) + data.get('ts_empty_45',0)
             tot_ts_box = ts_laden_box + ts_empty_box
             
-            # 4. TEUS T/S (Estimasi)
+            # TEUS T/S (Estimasi)
             teus_ts = (data.get('ts_laden_20',0) * 1) + (data.get('ts_laden_40',0) * 2) + (data.get('ts_laden_45',0) * 2.25) + \
                       (data.get('ts_empty_20',0) * 1) + (data.get('ts_empty_40',0) * 2) + (data.get('ts_empty_45',0) * 2.25)
 
-            # 5. Shifting
+            # 4. SHIFTING
             tot_shift_box = data.get('total_shift_box', 0)
             if tot_shift_box == 0:
                 tot_shift_box = data.get('shift_laden_20',0) + data.get('shift_laden_40',0) + data.get('shift_laden_45',0) + \
@@ -249,6 +266,17 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
                 "Service Name": input_service,
                 "Remark": 0,
                 
+                # IMPORT SECTION
+                "IMP_LADEN_20": data.get('import_laden_20',0),
+                "IMP_LADEN_40": data.get('import_laden_40',0),
+                "IMP_LADEN_45": data.get('import_laden_45',0),
+                "IMP_EMPTY_20": data.get('import_empty_20',0),
+                "IMP_EMPTY_40": data.get('import_empty_40',0),
+                "IMP_EMPTY_45": data.get('import_empty_45',0),
+                "TOTAL BOX IMPORT": tot_imp_box,
+                "TEUS IMPORT": teus_imp,
+
+                # EXPORT SECTION
                 "EXP_LADEN_20": data.get('export_laden_20',0),
                 "EXP_LADEN_40": data.get('export_laden_40',0),
                 "EXP_LADEN_45": data.get('export_laden_45',0),
@@ -258,6 +286,7 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
                 "TOTAL BOX EXPORT": tot_exp_box,
                 "TEUS EXPORT": teus_exp,
                 
+                # T/S SECTION
                 "TS_LADEN_20": data.get('ts_laden_20',0),
                 "TS_LADEN_40": data.get('ts_laden_40',0),
                 "TS_LADEN_45": data.get('ts_laden_45',0),
@@ -267,6 +296,7 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
                 "TOTAL BOX T/S": tot_ts_box,
                 "TEUS T/S": teus_ts, 
 
+                # SHIFTING SECTION
                 "SHIFT_LADEN_20": data.get('shift_laden_20',0),
                 "SHIFT_LADEN_40": data.get('shift_laden_40',0),
                 "SHIFT_LADEN_45": data.get('shift_laden_45',0),
@@ -276,8 +306,9 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
                 "TOTAL BOX SHIFTING": tot_shift_box,
                 "TEUS SHIFTING": data.get('total_shift_teus',0),
                 
-                "Total (Boxes)": tot_exp_box + tot_ts_box + tot_shift_box,
-                "Total Teus": teus_exp + teus_ts + data.get('total_shift_teus',0)
+                # GRAND TOTAL
+                "Total (Boxes)": tot_imp_box + tot_exp_box + tot_ts_box + tot_shift_box,
+                "Total Teus": teus_imp + teus_exp + teus_ts + data.get('total_shift_teus',0)
             }
             all_data.append(row)
         
@@ -291,8 +322,9 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
         
         df = pd.DataFrame(all_data)
         
-        st.dataframe(df.style.format("{:.2f}", subset=["TEUS EXPORT", "TEUS T/S", "TEUS SHIFTING", "Total Teus"]), 
-                     use_container_width=True)
+        # Kolom yang akan diformat angka desimalnya
+        teus_cols = ["TEUS IMPORT", "TEUS EXPORT", "TEUS T/S", "TEUS SHIFTING", "Total Teus"]
+        st.dataframe(df.style.format("{:.2f}", subset=teus_cols), use_container_width=True)
         
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
