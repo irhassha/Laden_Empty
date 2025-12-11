@@ -4,6 +4,7 @@ import requests
 import base64
 import json
 import io
+import time
 from PIL import Image
 
 # --- KONFIGURASI HALAMAN ---
@@ -22,11 +23,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- JUDUL ---
-st.title("⚓ NPCT1 Tally Extractor (Stable Version)")
+st.title("⚓ NPCT1 Tally Extractor (Super Robust Version)")
 st.markdown("""
 **Mode Stabil & Privat:** 1. Masukkan API Key & Data Kapal.
 2. Upload potongan gambar tabel (tanpa header nama kapal).
-3. Sistem akan memproses menggunakan Direct API Call (Anti-Error).
+3. Sistem akan memproses menggunakan Direct API Call dengan **Auto-Fallback Model**.
 """)
 
 # --- SIDEBAR: KUNCI & INPUT MANUAL ---
@@ -56,94 +57,98 @@ with st.sidebar:
 def extract_table_data(image, api_key):
     """
     Mengirim gambar ke Gemini via REST API standar.
-    Ini menghilangkan kebutuhan install library google-generative-ai yang sering error.
+    Menggunakan mekanisme FALLBACK untuk mencoba beberapa model jika satu gagal.
     """
     
-    # 1. FIX IMAGE MODE (PENTING UNTUK MENCEGAH OSERROR)
-    # Jika gambar punya transparansi (RGBA) atau mode Pallete (P), convert ke RGB biasa
+    # 1. FIX IMAGE MODE
     if image.mode != 'RGB':
         image = image.convert('RGB')
 
     # 2. Convert Image to Base64
     buffered = io.BytesIO()
-    image.save(buffered, format="JPEG") # Sekarang aman save ke JPEG
+    image.save(buffered, format="JPEG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    # 3. Setup Request URL (Gemini 1.5 Flash - Cepat & Murah/Gratis)
-    # Menggunakan versi spesifik 'gemini-1.5-flash-001' yang paling stabil
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key={api_key}"
-    headers = {'Content-Type': 'application/json'}
+    # Daftar Model untuk dicoba (Urutan prioritas: Cepat -> Terbaru -> Kuat)
+    models_to_try = [
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro",
+        "gemini-1.5-pro-latest"
+    ]
 
-    # 4. Prompt Engineering (Instruksi Logika)
-    prompt_text = """
-    Analisis gambar tabel operasi pelabuhan ini. Fokus hanya pada angka.
-    
-    TUGAS: Ekstrak data dan lakukan pemetaan kategori berikut:
-    
-    1. EXPORT (Ambil dari kolom LOADING di gambar):
-       - BOX LADEN = Penjumlahan angka di baris 'FULL' + 'REEFER' + 'OOG' pada kolom LOADING.
-       - BOX EMPTY = Ambil angka di baris 'EMPTY' pada kolom LOADING.
-       
-    2. TRANSHIPMENT / TS (Ambil dari baris T/S):
-       - Cari baris yang berlabel 'T/S', 'T/S FULL', atau 'T/S EMPTY'.
-       - Ambil angkanya untuk kategori T/S.
-       - Jika tidak ada pemisahan Laden/Empty yang jelas di baris T/S, asumsikan mayoritas adalah Laden.
-       
-    3. SHIFTING:
-       - Ambil total dari kolom SHIFTING (Laden & Empty).
-    
-    OUTPUT:
-    Kembalikan HANYA JSON raw (tanpa markdown ```json) dengan key integer berikut (isi 0 jika kosong):
-    {
-        "export_laden_20": int, "export_laden_40": int, "export_laden_45": int,
-        "export_empty_20": int, "export_empty_40": int, "export_empty_45": int,
-        "ts_laden_20": int, "ts_laden_40": int, "ts_laden_45": int,
-        "ts_empty_20": int, "ts_empty_40": int, "ts_empty_45": int,
-        "shift_laden_20": int, "shift_laden_40": int, "shift_laden_45": int,
-        "shift_empty_20": int, "shift_empty_40": int, "shift_empty_45": int,
-        "total_shift_box": int, "total_shift_teus": float
-    }
-    """
+    last_error = ""
 
-    # 5. Payload Body
-    payload = {
-        "contents": [{
-            "parts": [
-                {"text": prompt_text},
-                {
-                    "inline_data": {
-                        "mime_type": "image/jpeg",
-                        "data": img_str
-                    }
-                }
-            ]
-        }],
-        "generationConfig": {
-            "response_mime_type": "application/json"
-        }
-    }
+    # 3. Loop Try-Catch untuk setiap model
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        headers = {'Content-Type': 'application/json'}
 
-    try:
-        # Kirim Request
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
+        prompt_text = """
+        Analisis gambar tabel operasi pelabuhan ini. Fokus hanya pada angka.
         
-        if response.status_code == 200:
-            result = response.json()
-            # Parsing Text Response dari struktur JSON Gemini
-            try:
-                text_response = result['candidates'][0]['content']['parts'][0]['text']
-                # Bersihkan jika AI masih bandel kasih markdown
-                clean_json = text_response.replace('```json', '').replace('```', '').strip()
-                return json.loads(clean_json)
-            except (KeyError, IndexError, json.JSONDecodeError):
-                st.error("Gagal membaca struktur jawaban AI. Coba crop gambar lebih rapi.")
-                return None
-        else:
-            st.error(f"API Error {response.status_code}: {response.text}")
-            return None
-    except Exception as e:
-        st.error(f"Koneksi Gagal: {e}")
-        return None
+        TUGAS: Ekstrak data dan lakukan pemetaan kategori berikut:
+        1. EXPORT (Loading):
+           - BOX LADEN = Penjumlahan angka di baris 'FULL' + 'REEFER' + 'OOG' pada kolom LOADING.
+           - BOX EMPTY = Ambil angka di baris 'EMPTY' pada kolom LOADING.
+        2. TRANSHIPMENT / TS (Baris T/S):
+           - Ambil angkanya. Jika tidak spesifik, asumsikan Laden.
+        3. SHIFTING:
+           - Ambil total dari kolom SHIFTING.
+        
+        OUTPUT JSON Integer (0 jika kosong):
+        {
+            "export_laden_20": int, "export_laden_40": int, "export_laden_45": int,
+            "export_empty_20": int, "export_empty_40": int, "export_empty_45": int,
+            "ts_laden_20": int, "ts_laden_40": int, "ts_laden_45": int,
+            "ts_empty_20": int, "ts_empty_40": int, "ts_empty_45": int,
+            "shift_laden_20": int, "shift_laden_40": int, "shift_laden_45": int,
+            "shift_empty_20": int, "shift_empty_40": int, "shift_empty_45": int,
+            "total_shift_box": int, "total_shift_teus": float
+        }
+        """
+
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": prompt_text},
+                    {"inline_data": {"mime_type": "image/jpeg", "data": img_str}}
+                ]
+            }],
+            "generationConfig": {"response_mime_type": "application/json"}
+        }
+
+        try:
+            # Kirim Request
+            # st.toast(f"Mencoba model: {model_name}...", icon="🤖") # Optional: Debugging UI
+            response = requests.post(url, headers=headers, data=json.dumps(payload))
+            
+            if response.status_code == 200:
+                result = response.json()
+                try:
+                    text_response = result['candidates'][0]['content']['parts'][0]['text']
+                    clean_json = text_response.replace('```json', '').replace('```', '').strip()
+                    return json.loads(clean_json) # BERHASIL! Keluar dari loop
+                except (KeyError, IndexError, json.JSONDecodeError):
+                    last_error = f"Model {model_name} merespon tapi format salah."
+                    continue # Coba model berikutnya
+            else:
+                last_error = f"Model {model_name} Error {response.status_code}: {response.text}"
+                # Jika 404 (Model not found) atau 503 (Overloaded), lanjut ke model berikutnya
+                if response.status_code in [404, 503, 500]:
+                    time.sleep(1) # Jeda sebentar sebelum retry
+                    continue
+                else:
+                    # Error fatal (misal API Key salah), hentikan loop
+                    break
+
+        except Exception as e:
+            last_error = f"Connection Error pada {model_name}: {e}"
+            continue
+
+    # Jika loop selesai dan tidak ada return, berarti semua gagal
+    st.error(f"Gagal memproses gambar. Detail Error Terakhir: {last_error}")
+    return None
 
 # --- MAIN AREA ---
 uploaded_files = st.file_uploader("3. Upload Potongan Gambar Tabel (Bisa Banyak)", 
@@ -159,15 +164,11 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
     for index, uploaded_file in enumerate(uploaded_files):
         status_text.text(f"Sedang memproses: {uploaded_file.name}...")
         
-        # Buka Gambar
         image = Image.open(uploaded_file)
-        
-        # Panggil API
         data = extract_table_data(image, api_key)
         
         if data:
             # --- POST PROCESSING (HITUNG MATEMATIKA DI PYTHON) ---
-            # Kita hitung ulang total di sini supaya akurat 100% dan tidak bergantung hitungan AI
             
             # 1. Total Box Export
             exp_laden_box = data.get('export_laden_20',0) + data.get('export_laden_40',0) + data.get('export_laden_45',0)
@@ -183,13 +184,12 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
             ts_empty_box = data.get('ts_empty_20',0) + data.get('ts_empty_40',0) + data.get('ts_empty_45',0)
             tot_ts_box = ts_laden_box + ts_empty_box
             
-            # 4. TEUS T/S (Estimasi, kadang T/S cuma hitung box)
+            # 4. TEUS T/S (Estimasi)
             teus_ts = (data.get('ts_laden_20',0) * 1) + (data.get('ts_laden_40',0) * 2) + (data.get('ts_laden_45',0) * 2.25) + \
                       (data.get('ts_empty_20',0) * 1) + (data.get('ts_empty_40',0) * 2) + (data.get('ts_empty_45',0) * 2.25)
 
             # 5. Shifting
             tot_shift_box = data.get('total_shift_box', 0)
-            # Jika AI lupa isi total shift box tapi isi rinciannya
             if tot_shift_box == 0:
                 tot_shift_box = data.get('shift_laden_20',0) + data.get('shift_laden_40',0) + data.get('shift_laden_45',0) + \
                                 data.get('shift_empty_20',0) + data.get('shift_empty_40',0) + data.get('shift_empty_45',0)
@@ -201,7 +201,6 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
                 "Service Name": input_service,
                 "Remark": 0,
                 
-                # EXPORT
                 "EXP_LADEN_20": data.get('export_laden_20',0),
                 "EXP_LADEN_40": data.get('export_laden_40',0),
                 "EXP_LADEN_45": data.get('export_laden_45',0),
@@ -211,7 +210,6 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
                 "TOTAL BOX EXPORT": tot_exp_box,
                 "TEUS EXPORT": teus_exp,
                 
-                # TRANSHIPMENT
                 "TS_LADEN_20": data.get('ts_laden_20',0),
                 "TS_LADEN_40": data.get('ts_laden_40',0),
                 "TS_LADEN_45": data.get('ts_laden_45',0),
@@ -221,7 +219,6 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
                 "TOTAL BOX T/S": tot_ts_box,
                 "TEUS T/S": teus_ts, 
 
-                # SHIFTING
                 "SHIFT_LADEN_20": data.get('shift_laden_20',0),
                 "SHIFT_LADEN_40": data.get('shift_laden_40',0),
                 "SHIFT_LADEN_45": data.get('shift_laden_45',0),
@@ -231,7 +228,6 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
                 "TOTAL BOX SHIFTING": tot_shift_box,
                 "TEUS SHIFTING": data.get('total_shift_teus',0),
                 
-                # GRAND TOTAL
                 "Total (Boxes)": tot_exp_box + tot_ts_box + tot_shift_box,
                 "Total Teus": teus_exp + teus_ts + data.get('total_shift_teus',0)
             }
@@ -247,11 +243,9 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
         
         df = pd.DataFrame(all_data)
         
-        # Format angka di dataframe agar enak dilihat (tanpa desimal panjang)
         st.dataframe(df.style.format("{:.2f}", subset=["TEUS EXPORT", "TEUS T/S", "TEUS SHIFTING", "Total Teus"]), 
                      use_container_width=True)
         
-        # Download Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='Rekapitulasi')
