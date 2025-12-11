@@ -366,8 +366,8 @@ if st.session_state['extracted_data']:
         
         # Lakukan Summing untuk kolom numerik saja
         numeric_cols = subset_df.select_dtypes(include='number').columns
-        # Hapus kolom NO dari penjumlahan biar gak aneh
-        cols_to_sum = [c for c in numeric_cols if c != 'NO']
+        # Hapus kolom NO dan Remark dari penjumlahan biar gak aneh dan error
+        cols_to_sum = [c for c in numeric_cols if c not in ['NO', 'Remark']]
         
         sum_row = subset_df[cols_to_sum].sum()
         
