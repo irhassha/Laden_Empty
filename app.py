@@ -70,8 +70,8 @@ def extract_table_data(image, api_key):
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     # 3. Setup Request URL (Gemini 1.5 Flash - Cepat & Murah/Gratis)
-    # Menggunakan alias 'latest' untuk menghindari error 404 pada versi tertentu
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
+    # Menggunakan versi spesifik 'gemini-1.5-flash-001' yang paling stabil
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-001:generateContent?key={api_key}"
     headers = {'Content-Type': 'application/json'}
 
     # 4. Prompt Engineering (Instruksi Logika)
