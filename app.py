@@ -40,6 +40,10 @@ with st.sidebar:
     else:
         api_key = st.text_input("Masukkan Google Gemini API Key", type="password")
         st.caption("Dapatkan Key gratis di aistudio.google.com")
+    
+    # Bersihkan API Key dari spasi tidak sengaja
+    if api_key:
+        api_key = api_key.strip()
 
     st.divider()
     
@@ -66,7 +70,8 @@ def extract_table_data(image, api_key):
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     # 3. Setup Request URL (Gemini 1.5 Flash - Cepat & Murah/Gratis)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    # Menggunakan alias 'latest' untuk menghindari error 404 pada versi tertentu
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={api_key}"
     headers = {'Content-Type': 'application/json'}
 
     # 4. Prompt Engineering (Instruksi Logika)
