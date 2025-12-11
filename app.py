@@ -293,8 +293,18 @@ if st.session_state['extracted_data']:
         
         # Siapkan data untuk grafik
         if not edited_df.empty:
-            chart_data = edited_df[["Vessel", "TEUS IMPORT", "TEUS EXPORT", "TEUS T/S", "TEUS SHIFTING"]].set_index("Vessel")
-            st.bar_chart(chart_data)
+            # Mengubah grafik menjadi Total Agregat, bukan per kapal
+            summary_data = {
+                "Activity": ["Import", "Export", "Transhipment", "Shifting"],
+                "Total TEUs": [
+                    edited_df['TEUS IMPORT'].sum(),
+                    edited_df['TEUS EXPORT'].sum(),
+                    edited_df['TEUS T/S'].sum(),
+                    edited_df['TEUS SHIFTING'].sum()
+                ]
+            }
+            chart_df = pd.DataFrame(summary_data).set_index("Activity")
+            st.bar_chart(chart_df)
             
             # Kartu Metrik Total
             m1, m2, m3 = st.columns(3)
