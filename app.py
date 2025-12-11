@@ -329,6 +329,11 @@ if st.session_state['extracted_data']:
     teus_cols = ["TEUS IMPORT", "TEUS EXPORT", "TEUS T/S", "TEUS SHIFTING", "Total Teus"]
     st.dataframe(df.style.format("{:.2f}", subset=teus_cols), use_container_width=True)
     
+    # --- FITUR BARU: COPY TO CLIPBOARD (Table 1) ---
+    st.write("📋 **Copy Data (Tab-Separated):**")
+    st.caption("Klik icon **Copy** di pojok kanan atas kotak kode di bawah, lalu **Paste (Ctrl+V)** langsung ke Excel.")
+    st.code(df.to_csv(index=False, sep='\t'), language='csv')
+
     # Download Full Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -383,6 +388,10 @@ if st.session_state['extracted_data']:
         st.success(f"✅ Total Gabungan dari {len(selected_indices)} Kapal:")
         st.dataframe(combined_df.style.format("{:.2f}", subset=teus_cols), use_container_width=True)
         
+        # --- FITUR BARU: COPY TO CLIPBOARD (Table 2 - Combined) ---
+        st.caption("Tip: Copy data gabungan ini ke Excel:")
+        st.code(combined_df.to_csv(index=False, sep='\t'), language='csv')
+
         # Download Combine Button
         output_combine = io.BytesIO()
         with pd.ExcelWriter(output_combine, engine='openpyxl') as writer:
