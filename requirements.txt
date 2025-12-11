@@ -3,3 +3,4 @@ pandas
 openpyxl
 google-generative-ai>=0.3.0
 Pillow
+grpcio
