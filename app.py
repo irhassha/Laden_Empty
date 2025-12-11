@@ -8,9 +8,13 @@ import time
 from PIL import Image
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(layout="wide", page_title="NPCT1 Auto Tally")
+st.set_page_config(
+    layout="wide", 
+    page_title="NPCT1 Auto Tally",
+    page_icon="⚓"
+)
 
-# --- CSS CUSTOM ---
+# --- CSS CUSTOM UNTUK TAMPILAN BERSIH ---
 st.markdown("""
 <style>
     .main > div {
@@ -19,29 +23,24 @@ st.markdown("""
     .stAlert {
         margin-top: 1rem;
     }
+    /* Mempercantik Metrics/Cards jika ada */
+    div[data-testid="metric-container"] {
+        background-color: #f0f2f6;
+        border: 1px solid #e0e0e0;
+        padding: 10px;
+        border-radius: 5px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- JUDUL ---
-st.title("⚓ NPCT1 Tally Extractor (Smart Failover Mode)")
-st.markdown("""
-**Mode Pintar:** 1. Masukkan API Key & Data Kapal.
-2. Sistem akan otomatis mencari model AI yang tersedia.
-3. **Anti-Limit:** Jika satu model kuotanya habis (429), sistem otomatis pindah ke model lain.
-""")
-
 # --- INITIALIZE SESSION STATE ---
-# Kita butuh ini agar data tidak hilang saat kita klik tombol 'Combine' nanti
 if 'extracted_data' not in st.session_state:
     st.session_state['extracted_data'] = []
 
 # --- FUNGSI UTILITY: CACHE DATA MODEL ---
 @st.cache_data(ttl=300) 
 def get_prioritized_models(api_key):
-    """
-    Mengambil semua model yang tersedia dan mengurutkannya.
-    PRIORITAS UTAMA: FLASH (Karena kuota gratis besar & cepat).
-    """
+    """Mengambil semua model yang tersedia dan mengurutkannya."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     try:
         response = requests.get(url)
@@ -52,112 +51,91 @@ def get_prioritized_models(api_key):
                 for m in data.get('models', []) 
                 if 'generateContent' in m.get('supportedGenerationMethods', [])
             ]
+            if not all_models: return []
             
-            if not all_models:
-                return []
-            
-            sorted_models = []
-            # Layer 1: Flash Models 
             flash_models = [m for m in all_models if 'flash' in m.lower()]
-            # Layer 2: Pro Models
             pro_models = [m for m in all_models if 'pro' in m.lower() and m not in flash_models]
-            # Layer 3: Others
             other_models = [m for m in all_models if m not in flash_models and m not in pro_models]
             
-            sorted_models = flash_models + pro_models + other_models
-            return sorted_models
+            return flash_models + pro_models + other_models
         else:
             return []
     except Exception:
         return []
 
-# --- SIDEBAR: KUNCI & INPUT MANUAL ---
+# --- SIDEBAR: KONFIGURASI API (SET & FORGET) ---
 with st.sidebar:
-    st.header("1. Konfigurasi API")
+    st.title("⚙️ Pengaturan")
     
+    # API Key Input
     if "GEMINI_API_KEY" in st.secrets:
         api_key = st.secrets["GEMINI_API_KEY"]
-        st.success("✅ API Key Terdeteksi dari System")
+        st.success("✅ API Key Terhubung")
     else:
-        api_key = st.text_input("Masukkan Google Gemini API Key", type="password")
-        st.caption("Dapatkan Key gratis di aistudio.google.com")
+        api_key = st.text_input("Google Gemini API Key", type="password", placeholder="Paste key disini...")
+        st.caption("[Dapatkan Key Gratis](https://aistudio.google.com/)")
     
     if api_key:
         api_key = api_key.strip()
-        
         st.divider()
-        st.header("🔍 Status Koneksi")
-        with st.spinner("Mengecek koneksi..."):
+        
+        # Status Koneksi Simple
+        with st.spinner("Cek koneksi..."):
             active_models = get_prioritized_models(api_key)
             
         if active_models:
-            st.success("✅ Terhubung & Siap")
-            with st.expander(f"Lihat {len(active_models)} Model Aktif"):
-                st.write(active_models)
-                
-            st.info("""
-            **Info Batas Free Tier:**
-            - 15 Request / Menit
-            - 1.500 Request / Hari
-            
-            *Jika error 429, sistem otomatis pindah model.*
-            """)
-            st.markdown("**Cek Sisa Kuota Realtime:**")
-            st.link_button("📊 Buka Google AI Dashboard", "https://aistudio.google.com/app/plan_information")
+            st.markdown(f"**Status:** 🟢 Online ({len(active_models)} Models)")
+            st.progress(100)
+            st.caption("System ready to process.")
         else:
-            st.error("❌ Koneksi Gagal / API Key Salah")
+            st.markdown("**Status:** 🔴 Offline")
+            st.error("API Key Invalid")
 
     st.divider()
-    
-    st.header("2. Input Identitas (Manual)")
-    st.warning("Data ini wajib diisi agar Excel memiliki identitas.")
-    input_vessel = st.text_input("Nama Kapal (Vessel Name)", value="Vessel A")
-    input_service = st.text_input("Service / Voyage", value="Service A")
+    st.info("Versi Aplikasi: 1.2 (Stable)\nMode: Smart Failover")
 
+# --- HEADER APLIKASI ---
+st.title("⚓ NPCT1 Tally Extractor")
+st.markdown("Automasi ekstraksi data operasional pelabuhan dari gambar laporan ke Excel.")
+st.divider()
 
-# --- FUNGSI AI (VERSI REST API + FAILOVER) ---
+# --- INPUT AREA (STEP 1 & 2) ---
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("1. Identitas Kapal")
+    input_vessel = st.text_input("Nama Kapal (Vessel Name)", value="Vessel A", placeholder="Contoh: MV. SINAR SUNDA")
+    input_service = st.text_input("Service / Voyage", value="Service A", placeholder="Contoh: 001N")
+
+with col2:
+    st.subheader("2. Upload Laporan")
+    uploaded_files = st.file_uploader("Upload Potongan Gambar Tabel", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+
+# --- FUNGSI EKSTRAKSI CORE ---
 def extract_table_data(image, api_key):
-    
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-
+    if image.mode != 'RGB': image = image.convert('RGB')
     buffered = io.BytesIO()
     image.save(buffered, format="JPEG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
     candidate_models = get_prioritized_models(api_key)
-    
-    if not candidate_models:
-        candidate_models = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"]
+    if not candidate_models: candidate_models = ["gemini-1.5-flash", "gemini-1.5-flash-latest"]
     
     last_error_msg = ""
-    
     for model_name in candidate_models:
-        if "experimental" in model_name:
-            continue
+        if "experimental" in model_name: continue
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
-
+        
+        # Prompt yang sudah teruji
         prompt_text = """
         Analisis gambar tabel operasi pelabuhan ini. Fokus hanya pada angka.
-        
         TUGAS: Ekstrak data dan lakukan pemetaan kategori berikut:
-        
-        1. IMPORT (Ambil dari kolom DISCHARGE di gambar):
-           - BOX LADEN = Penjumlahan angka di baris 'FULL' + 'REEFER' + 'OOG' pada kolom DISCHARGE.
-           - BOX EMPTY = Ambil angka di baris 'EMPTY' pada kolom DISCHARGE.
-
-        2. EXPORT (Ambil dari kolom LOADING di gambar):
-           - BOX LADEN = Penjumlahan angka di baris 'FULL' + 'REEFER' + 'OOG' pada kolom LOADING.
-           - BOX EMPTY = Ambil angka di baris 'EMPTY' pada kolom LOADING.
-           
-        3. TRANSHIPMENT / TS (Baris T/S):
-           - Ambil angkanya. Jika tidak spesifik, asumsikan Laden.
-           
-        4. SHIFTING:
-           - Ambil total dari kolom SHIFTING.
-        
+        1. IMPORT (Kolom DISCHARGE): BOX LADEN (FULL+REEFER+OOG), BOX EMPTY.
+        2. EXPORT (Kolom LOADING): BOX LADEN (FULL+REEFER+OOG), BOX EMPTY.
+        3. TRANSHIPMENT / TS (Baris T/S): Ambil angkanya.
+        4. SHIFTING: Ambil total kolom SHIFTING.
         OUTPUT JSON Integer (0 jika kosong):
         {
             "import_laden_20": int, "import_laden_40": int, "import_laden_45": int,
@@ -171,235 +149,158 @@ def extract_table_data(image, api_key):
             "total_shift_box": int, "total_shift_teus": float
         }
         """
-
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": prompt_text},
-                    {"inline_data": {"mime_type": "image/jpeg", "data": img_str}}
-                ]
-            }],
-            "generationConfig": {"response_mime_type": "application/json"}
-        }
+        payload = {"contents": [{"parts": [{"text": prompt_text}, {"inline_data": {"mime_type": "image/jpeg", "data": img_str}}]}], "generationConfig": {"response_mime_type": "application/json"}}
 
         try:
             response = requests.post(url, headers=headers, data=json.dumps(payload))
-            
             if response.status_code == 200:
-                result = response.json()
-                try:
-                    text_response = result['candidates'][0]['content']['parts'][0]['text']
-                    clean_json = text_response.replace('```json', '').replace('```', '').strip()
-                    return json.loads(clean_json)
-                except Exception:
-                    last_error_msg = f"Model {model_name} output format salah."
-                    continue 
-            
-            elif response.status_code == 429:
-                last_error_msg = f"Kuota {model_name} habis (429). Mencoba model lain..."
-                continue
-            
-            elif response.status_code in [404, 500, 503]:
-                last_error_msg = f"Model {model_name} tidak ditemukan/error server ({response.status_code})."
-                continue
-            
-            else:
-                last_error_msg = f"API Error {response.status_code}: {response.text}"
-                break
+                clean_json = response.json()['candidates'][0]['content']['parts'][0]['text'].replace('```json', '').replace('```', '').strip()
+                return json.loads(clean_json)
+            elif response.status_code == 429: continue # Limit, try next
+            elif response.status_code in [404, 500, 503]: continue # Error, try next
+            else: break # Fatal error
+        except Exception as e: continue
 
-        except Exception as e:
-            last_error_msg = f"Koneksi Error pada {model_name}: {e}"
-            continue
-
-    st.error(f"Gagal memproses. Detail: {last_error_msg}")
+    st.error(f"Gagal memproses gambar. Detail: {last_error_msg}")
     return None
 
-# --- MAIN AREA ---
-uploaded_files = st.file_uploader("3. Upload Potongan Gambar Tabel (Bisa Banyak)", 
-                                  type=['png', 'jpg', 'jpeg'], 
-                                  accept_multiple_files=True)
-
-# TOMBOL PROSES EKSTRAKSI
-if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
-    
-    # Reset data lama jika user upload ulang
-    st.session_state['extracted_data'] = []
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    for index, uploaded_file in enumerate(uploaded_files):
-        status_text.text(f"Sedang memproses: {uploaded_file.name}...")
+# --- TOMBOL AKSI ---
+if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=True):
+    if not uploaded_files or not api_key:
+        st.warning("Mohon lengkapi API Key dan Upload File terlebih dahulu.")
+    else:
+        st.session_state['extracted_data'] = [] # Reset
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-        image = Image.open(uploaded_file)
-        data = extract_table_data(image, api_key)
-        
-        if data:
-            # --- POST PROCESSING ---
-            # 1. IMPORT
-            imp_laden_box = data.get('import_laden_20',0) + data.get('import_laden_40',0) + data.get('import_laden_45',0)
-            imp_empty_box = data.get('import_empty_20',0) + data.get('import_empty_40',0) + data.get('import_empty_45',0)
-            tot_imp_box = imp_laden_box + imp_empty_box
-
-            teus_imp = (data.get('import_laden_20',0) * 1) + (data.get('import_laden_40',0) * 2) + (data.get('import_laden_45',0) * 2.25) + \
-                       (data.get('import_empty_20',0) * 1) + (data.get('import_empty_40',0) * 2) + (data.get('import_empty_45',0) * 2.25)
-
-            # 2. EXPORT
-            exp_laden_box = data.get('export_laden_20',0) + data.get('export_laden_40',0) + data.get('export_laden_45',0)
-            exp_empty_box = data.get('export_empty_20',0) + data.get('export_empty_40',0) + data.get('export_empty_45',0)
-            tot_exp_box = exp_laden_box + exp_empty_box
+        for index, uploaded_file in enumerate(uploaded_files):
+            status_text.caption(f"Sedang memproses: {uploaded_file.name}...")
+            image = Image.open(uploaded_file)
+            data = extract_table_data(image, api_key)
             
-            teus_exp = (data.get('export_laden_20',0) * 1) + (data.get('export_laden_40',0) * 2) + (data.get('export_laden_45',0) * 2.25) + \
-                       (data.get('export_empty_20',0) * 1) + (data.get('export_empty_40',0) * 2) + (data.get('export_empty_45',0) * 2.25)
-
-            # 3. TRANSHIPMENT
-            ts_laden_box = data.get('ts_laden_20',0) + data.get('ts_laden_40',0) + data.get('ts_laden_45',0)
-            ts_empty_box = data.get('ts_empty_20',0) + data.get('ts_empty_40',0) + data.get('ts_empty_45',0)
-            tot_ts_box = ts_laden_box + ts_empty_box
-            
-            teus_ts = (data.get('ts_laden_20',0) * 1) + (data.get('ts_laden_40',0) * 2) + (data.get('ts_laden_45',0) * 2.25) + \
-                      (data.get('ts_empty_20',0) * 1) + (data.get('ts_empty_40',0) * 2) + (data.get('ts_empty_45',0) * 2.25)
-
-            # 4. SHIFTING
-            tot_shift_box = data.get('total_shift_box', 0)
-            if tot_shift_box == 0:
-                tot_shift_box = data.get('shift_laden_20',0) + data.get('shift_laden_40',0) + data.get('shift_laden_45',0) + \
-                                data.get('shift_empty_20',0) + data.get('shift_empty_40',0) + data.get('shift_empty_45',0)
-
-            # Mapping Data
-            row = {
-                "NO": index + 1,
-                "Vessel": f"{input_vessel} ({index+1})", # Tambah index biar beda kalo upload banyak file
-                "Service Name": input_service,
-                "Remark": 0,
+            if data:
+                # --- CALCULATION LOGIC ---
+                # Import
+                imp_l = [data.get(f'import_laden_{x}',0) for x in [20,40,45]]
+                imp_e = [data.get(f'import_empty_{x}',0) for x in [20,40,45]]
+                teus_imp = (imp_l[0]*1 + imp_l[1]*2 + imp_l[2]*2.25) + (imp_e[0]*1 + imp_e[1]*2 + imp_e[2]*2.25)
                 
-                "IMP_LADEN_20": data.get('import_laden_20',0),
-                "IMP_LADEN_40": data.get('import_laden_40',0),
-                "IMP_LADEN_45": data.get('import_laden_45',0),
-                "IMP_EMPTY_20": data.get('import_empty_20',0),
-                "IMP_EMPTY_40": data.get('import_empty_40',0),
-                "IMP_EMPTY_45": data.get('import_empty_45',0),
-                "TOTAL BOX IMPORT": tot_imp_box,
-                "TEUS IMPORT": teus_imp,
+                # Export
+                exp_l = [data.get(f'export_laden_{x}',0) for x in [20,40,45]]
+                exp_e = [data.get(f'export_empty_{x}',0) for x in [20,40,45]]
+                teus_exp = (exp_l[0]*1 + exp_l[1]*2 + exp_l[2]*2.25) + (exp_e[0]*1 + exp_e[1]*2 + exp_e[2]*2.25)
 
-                "EXP_LADEN_20": data.get('export_laden_20',0),
-                "EXP_LADEN_40": data.get('export_laden_40',0),
-                "EXP_LADEN_45": data.get('export_laden_45',0),
-                "EXP_EMPTY_20": data.get('export_empty_20',0),
-                "EXP_EMPTY_40": data.get('export_empty_40',0),
-                "EXP_EMPTY_45": data.get('export_empty_45',0),
-                "TOTAL BOX EXPORT": tot_exp_box,
-                "TEUS EXPORT": teus_exp,
-                
-                "TS_LADEN_20": data.get('ts_laden_20',0),
-                "TS_LADEN_40": data.get('ts_laden_40',0),
-                "TS_LADEN_45": data.get('ts_laden_45',0),
-                "TS_EMPTY_20": data.get('ts_empty_20',0),
-                "TS_EMPTY_40": data.get('ts_empty_40',0),
-                "TS_EMPTY_45": data.get('ts_empty_45',0),
-                "TOTAL BOX T/S": tot_ts_box,
-                "TEUS T/S": teus_ts, 
+                # Transhipment
+                ts_l = [data.get(f'ts_laden_{x}',0) for x in [20,40,45]]
+                ts_e = [data.get(f'ts_empty_{x}',0) for x in [20,40,45]]
+                teus_ts = (ts_l[0]*1 + ts_l[1]*2 + ts_l[2]*2.25) + (ts_e[0]*1 + ts_e[1]*2 + ts_e[2]*2.25)
 
-                "SHIFT_LADEN_20": data.get('shift_laden_20',0),
-                "SHIFT_LADEN_40": data.get('shift_laden_40',0),
-                "SHIFT_LADEN_45": data.get('shift_laden_45',0),
-                "SHIFT_EMPTY_20": data.get('shift_empty_20',0),
-                "SHIFT_EMPTY_40": data.get('shift_empty_40',0),
-                "SHIFT_EMPTY_45": data.get('shift_empty_45',0),
-                "TOTAL BOX SHIFTING": tot_shift_box,
-                "TEUS SHIFTING": data.get('total_shift_teus',0),
-                
-                "Total (Boxes)": tot_imp_box + tot_exp_box + tot_ts_box + tot_shift_box,
-                "Total Teus": teus_imp + teus_exp + teus_ts + data.get('total_shift_teus',0)
-            }
-            # SIMPAN KE SESSION STATE
-            st.session_state['extracted_data'].append(row)
+                # Shifting
+                sh_l = [data.get(f'shift_laden_{x}',0) for x in [20,40,45]]
+                sh_e = [data.get(f'shift_empty_{x}',0) for x in [20,40,45]]
+                tot_shift_box = data.get('total_shift_box', sum(sh_l)+sum(sh_e))
+
+                # Row Construction
+                row = {
+                    "NO": index + 1,
+                    "Vessel": f"{input_vessel} ({index+1})" if len(uploaded_files)>1 else input_vessel,
+                    "Service Name": input_service,
+                    "Remark": 0,
+                    # Import
+                    "IMP_LADEN_20": imp_l[0], "IMP_LADEN_40": imp_l[1], "IMP_LADEN_45": imp_l[2],
+                    "IMP_EMPTY_20": imp_e[0], "IMP_EMPTY_40": imp_e[1], "IMP_EMPTY_45": imp_e[2],
+                    "TOTAL BOX IMPORT": sum(imp_l)+sum(imp_e), "TEUS IMPORT": teus_imp,
+                    # Export
+                    "EXP_LADEN_20": exp_l[0], "EXP_LADEN_40": exp_l[1], "EXP_LADEN_45": exp_l[2],
+                    "EXP_EMPTY_20": exp_e[0], "EXP_EMPTY_40": exp_e[1], "EXP_EMPTY_45": exp_e[2],
+                    "TOTAL BOX EXPORT": sum(exp_l)+sum(exp_e), "TEUS EXPORT": teus_exp,
+                    # TS
+                    "TS_LADEN_20": ts_l[0], "TS_LADEN_40": ts_l[1], "TS_LADEN_45": ts_l[2],
+                    "TS_EMPTY_20": ts_e[0], "TS_EMPTY_40": ts_e[1], "TS_EMPTY_45": ts_e[2],
+                    "TOTAL BOX T/S": sum(ts_l)+sum(ts_e), "TEUS T/S": teus_ts,
+                    # Shifting
+                    "SHIFT_LADEN_20": sh_l[0], "SHIFT_LADEN_40": sh_l[1], "SHIFT_LADEN_45": sh_l[2],
+                    "SHIFT_EMPTY_20": sh_e[0], "SHIFT_EMPTY_40": sh_e[1], "SHIFT_EMPTY_45": sh_e[2],
+                    "TOTAL BOX SHIFTING": tot_shift_box, "TEUS SHIFTING": data.get('total_shift_teus',0),
+                    # Grand Total
+                    "Total (Boxes)": (sum(imp_l)+sum(imp_e)) + (sum(exp_l)+sum(exp_e)) + (sum(ts_l)+sum(ts_e)) + tot_shift_box,
+                    "Total Teus": teus_imp + teus_exp + teus_ts + data.get('total_shift_teus',0)
+                }
+                st.session_state['extracted_data'].append(row)
+            progress_bar.progress((index + 1) / len(uploaded_files))
         
-        progress_bar.progress((index + 1) / len(uploaded_files))
-    status_text.text("Selesai!")
+        status_text.success("Selesai!")
+        time.sleep(1)
+        st.rerun()
 
-# --- DISPLAY LOGIC (SELALU TAMPIL JIKA ADA DATA DI STATE) ---
+# --- DISPLAY HASIL (TABS VIEW) ---
 if st.session_state['extracted_data']:
     df = pd.DataFrame(st.session_state['extracted_data'])
-    
-    st.divider()
-    st.header("3. Hasil Ekstraksi Data")
-    
-    # Kolom desimal
     teus_cols = ["TEUS IMPORT", "TEUS EXPORT", "TEUS T/S", "TEUS SHIFTING", "Total Teus"]
-    st.dataframe(df.style.format("{:.2f}", subset=teus_cols), use_container_width=True)
     
-    # --- FITUR BARU: COPY TO CLIPBOARD (Table 1) ---
-    st.write("📋 **Copy Data (Tab-Separated):**")
-    st.caption("Klik icon **Copy** di pojok kanan atas kotak kode di bawah, lalu **Paste (Ctrl+V)** langsung ke Excel.")
-    st.code(df.to_csv(index=False, sep='\t'), language='csv')
-
-    # Download Full Excel
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Rekapitulasi')
-    
-    st.download_button(
-        label="📥 Download Excel (Semua Data)", 
-        data=output.getvalue(), 
-        file_name=f"Rekap_{input_vessel}_Full.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-    # --- FITUR BARU: COMBINE DATA ---
     st.divider()
-    st.header("4. Fitur Combine Data (Penjumlahan Kapal)")
-    st.info("Pilih beberapa kapal dari daftar di bawah untuk menjumlahkan datanya.")
-
-    # Multiselect berdasarkan NO Urut
-    options = df['NO'].tolist()
-    # Format label dropdown biar enak dibaca: "1 - Vessel A (1)"
-    choice_labels = {row['NO']: f"{row['NO']} - {row['Vessel']}" for index, row in df.iterrows()}
     
-    selected_indices = st.multiselect(
-        "Pilih Data (Nomor Urut):", 
-        options,
-        format_func=lambda x: choice_labels.get(x)
-    )
+    # Gunakan Tabs untuk tampilan lebih rapi
+    tab1, tab2 = st.tabs(["📋 Data Detail", "➕ Gabung Data (Combine)"])
+    
+    with tab1:
+        st.markdown("##### Hasil Ekstraksi")
+        st.dataframe(df.style.format("{:.2f}", subset=teus_cols), use_container_width=True)
+        
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.caption("Copy data di bawah ini untuk Paste ke Excel:")
+            st.code(df.to_csv(index=False, sep='\t'), language='csv')
+        with c2:
+            st.write("") # Spacer
+            st.write("") 
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Rekapitulasi')
+            st.download_button(
+                label="📥 Download Excel", 
+                data=output.getvalue(), 
+                file_name=f"Rekap_{input_vessel}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
 
-    if selected_indices:
-        # Filter Data
-        subset_df = df[df['NO'].isin(selected_indices)]
+    with tab2:
+        st.markdown("##### Fitur Penjumlahan Multi-Kapal")
         
-        st.write("##### Data yang dipilih:")
-        st.dataframe(subset_df.style.format("{:.2f}", subset=teus_cols), use_container_width=True)
-        
-        # Lakukan Summing untuk kolom numerik saja
-        numeric_cols = subset_df.select_dtypes(include='number').columns
-        # Hapus kolom NO dan Remark dari penjumlahan biar gak aneh dan error
-        cols_to_sum = [c for c in numeric_cols if c not in ['NO', 'Remark']]
-        
-        sum_row = subset_df[cols_to_sum].sum()
-        
-        # Buat Dataframe Hasil Combine
-        combined_df = pd.DataFrame([sum_row])
-        
-        # Isi kembali kolom teks identitas
-        combined_df.insert(0, "NO", "GABUNGAN")
-        combined_df.insert(1, "Vessel", "MULTIPLE VESSELS")
-        combined_df.insert(2, "Service Name", "COMBINED")
-        combined_df.insert(3, "Remark", "-")
+        options = df['NO'].tolist()
+        choice_labels = {row['NO']: f"{row['NO']} - {row['Vessel']}" for index, row in df.iterrows()}
+        selected_indices = st.multiselect("Pilih kapal yang ingin dijumlahkan:", options, format_func=lambda x: choice_labels.get(x))
 
-        st.success(f"✅ Total Gabungan dari {len(selected_indices)} Kapal:")
-        st.dataframe(combined_df.style.format("{:.2f}", subset=teus_cols), use_container_width=True)
-        
-        # --- FITUR BARU: COPY TO CLIPBOARD (Table 2 - Combined) ---
-        st.caption("Tip: Copy data gabungan ini ke Excel:")
-        st.code(combined_df.to_csv(index=False, sep='\t'), language='csv')
-
-        # Download Combine Button
-        output_combine = io.BytesIO()
-        with pd.ExcelWriter(output_combine, engine='openpyxl') as writer:
-            combined_df.to_excel(writer, index=False, sheet_name='Combined_Data')
-        
-        st.download_button(
-            label="📥 Download Excel (Data Gabungan Saja)", 
-            data=output_combine.getvalue(), 
-            file_name=f"Rekap_Gabungan_{len(selected_indices)}_Kapal.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        if selected_indices:
+            subset_df = df[df['NO'].isin(selected_indices)]
+            st.info(f"Menjumlahkan {len(selected_indices)} data terpilih...")
+            
+            numeric_cols = subset_df.select_dtypes(include='number').columns
+            cols_to_sum = [c for c in numeric_cols if c not in ['NO', 'Remark']]
+            sum_row = subset_df[cols_to_sum].sum()
+            
+            combined_df = pd.DataFrame([sum_row])
+            combined_df.insert(0, "NO", "GABUNGAN")
+            combined_df.insert(1, "Vessel", "MULTIPLE VESSELS")
+            combined_df.insert(2, "Service Name", "COMBINED")
+            combined_df.insert(3, "Remark", "-")
+            
+            st.dataframe(combined_df.style.format("{:.2f}", subset=teus_cols), use_container_width=True)
+            
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                st.code(combined_df.to_csv(index=False, sep='\t'), language='csv')
+            with c2:
+                st.write("")
+                st.write("")
+                output_combine = io.BytesIO()
+                with pd.ExcelWriter(output_combine, engine='openpyxl') as writer:
+                    combined_df.to_excel(writer, index=False, sheet_name='Combined')
+                st.download_button(
+                    label="📥 Download Gabungan", 
+                    data=output_combine.getvalue(), 
+                    file_name=f"Rekap_Gabungan.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
