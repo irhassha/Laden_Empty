@@ -5,6 +5,7 @@ import base64
 import json
 import io
 import time
+import altair as alt
 from PIL import Image
 
 # --- KONFIGURASI HALAMAN ---
@@ -287,13 +288,11 @@ if st.session_state['extracted_data']:
                 use_container_width=True
             )
 
-    # --- TAB 2: DASHBOARD (SIMPLE VISUALIZATION) ---
+    # --- TAB 2: DASHBOARD (HORIZONTAL BAR CHART) ---
     with tab2:
         st.markdown("##### Ringkasan Volume (Total TEUS)")
         
-        # Siapkan data untuk grafik
         if not edited_df.empty:
-            # Mengubah grafik menjadi Total Agregat, bukan per kapal
             summary_data = {
                 "Activity": ["Import", "Export", "Transhipment", "Shifting"],
                 "Total TEUs": [
@@ -303,8 +302,21 @@ if st.session_state['extracted_data']:
                     edited_df['TEUS SHIFTING'].sum()
                 ]
             }
-            chart_df = pd.DataFrame(summary_data).set_index("Activity")
-            st.bar_chart(chart_df)
+            chart_df = pd.DataFrame(summary_data)
+            
+            # MENGGUNAKAN ALTAIR UNTUK KUSTOMISASI WARNA & ORIENTASI
+            # X=Total TEUs, Y=Activity (Membuat horizontal)
+            # Color=Activity (Membuat warna beda tiap bar)
+            chart = alt.Chart(chart_df).mark_bar().encode(
+                x=alt.X('Total TEUs', title='Total TEUs'),
+                y=alt.Y('Activity', sort='-x', title='Aktivitas'),
+                color=alt.Color('Activity', legend=None), 
+                tooltip=['Activity', 'Total TEUs']
+            ).properties(
+                height=300
+            ).interactive()
+            
+            st.altair_chart(chart, use_container_width=True)
             
             # Kartu Metrik Total
             m1, m2, m3 = st.columns(3)
