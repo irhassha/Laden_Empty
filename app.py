@@ -23,12 +23,13 @@ st.markdown("""
     .stAlert {
         margin-top: 1rem;
     }
-    /* Mempercantik Metrics/Cards jika ada */
+    /* Mempercantik Metrics/Cards */
     div[data-testid="metric-container"] {
-        background-color: #f0f2f6;
+        background-color: #f8f9fa;
         border: 1px solid #e0e0e0;
-        padding: 10px;
-        border-radius: 5px;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -86,13 +87,17 @@ with st.sidebar:
         if active_models:
             st.markdown(f"**Status:** 🟢 Online ({len(active_models)} Models)")
             st.progress(100)
-            st.caption("System ready to process.")
         else:
             st.markdown("**Status:** 🔴 Offline")
             st.error("API Key Invalid")
-
+            
     st.divider()
-    st.info("Versi Aplikasi: 1.2 (Stable)\nMode: Smart Failover")
+    # Tombol Reset Data
+    if st.button("🗑️ Hapus Semua Data", type="secondary", use_container_width=True):
+        st.session_state['extracted_data'] = []
+        st.rerun()
+
+    st.info("Versi Aplikasi: 1.3 (Enhanced)\nMode: Smart Failover + Editable")
 
 # --- HEADER APLIKASI ---
 st.title("⚓ NPCT1 Tally Extractor")
@@ -128,7 +133,6 @@ def extract_table_data(image, api_key):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         
-        # Prompt yang sudah teruji
         prompt_text = """
         Analisis gambar tabel operasi pelabuhan ini. Fokus hanya pada angka.
         TUGAS: Ekstrak data dan lakukan pemetaan kategori berikut:
@@ -156,9 +160,9 @@ def extract_table_data(image, api_key):
             if response.status_code == 200:
                 clean_json = response.json()['candidates'][0]['content']['parts'][0]['text'].replace('```json', '').replace('```', '').strip()
                 return json.loads(clean_json)
-            elif response.status_code == 429: continue # Limit, try next
-            elif response.status_code in [404, 500, 503]: continue # Error, try next
-            else: break # Fatal error
+            elif response.status_code == 429: continue 
+            elif response.status_code in [404, 500, 503]: continue 
+            else: break 
         except Exception as e: continue
 
     st.error(f"Gagal memproses gambar. Detail: {last_error_msg}")
@@ -169,7 +173,10 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
     if not uploaded_files or not api_key:
         st.warning("Mohon lengkapi API Key dan Upload File terlebih dahulu.")
     else:
-        st.session_state['extracted_data'] = [] # Reset
+        # Jangan reset st.session_state['extracted_data'] di sini agar bisa menambah data (append)
+        # Atau jika ingin reset setiap kali klik tombol, uncomment baris bawah:
+        # st.session_state['extracted_data'] = [] 
+        
         progress_bar = st.progress(0)
         status_text = st.empty()
         
@@ -202,8 +209,8 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
 
                 # Row Construction
                 row = {
-                    "NO": index + 1,
-                    "Vessel": f"{input_vessel} ({index+1})" if len(uploaded_files)>1 else input_vessel,
+                    "NO": len(st.session_state['extracted_data']) + 1, # Increment NO based on existing data
+                    "Vessel": f"{input_vessel} ({len(st.session_state['extracted_data']) + 1})",
                     "Service Name": input_service,
                     "Remark": 0,
                     # Import
@@ -235,28 +242,43 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
 
 # --- DISPLAY HASIL (TABS VIEW) ---
 if st.session_state['extracted_data']:
-    df = pd.DataFrame(st.session_state['extracted_data'])
+    
+    # Konversi state ke DataFrame awal
+    df_initial = pd.DataFrame(st.session_state['extracted_data'])
     teus_cols = ["TEUS IMPORT", "TEUS EXPORT", "TEUS T/S", "TEUS SHIFTING", "Total Teus"]
     
     st.divider()
     
-    # Gunakan Tabs untuk tampilan lebih rapi
-    tab1, tab2 = st.tabs(["📋 Data Detail", "➕ Gabung Data (Combine)"])
+    # TABS: Detail, Dashboard, Combine
+    tab1, tab2, tab3 = st.tabs(["📋 Data Detail (Edit)", "📊 Dashboard", "➕ Gabung Data (Combine)"])
     
+    # --- TAB 1: DATA EDITOR ---
     with tab1:
-        st.markdown("##### Hasil Ekstraksi")
-        st.dataframe(df.style.format("{:.2f}", subset=teus_cols), use_container_width=True)
+        st.markdown("##### Hasil Ekstraksi (Bisa Diedit)")
+        st.caption("Klik dua kali pada sel untuk mengoreksi angka jika ada kesalahan OCR.")
         
+        # FITUR UTAMA: DATA EDITOR
+        edited_df = st.data_editor(
+            df_initial, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            column_config={
+                "NO": st.column_config.NumberColumn(disabled=True),
+                "Total Teus": st.column_config.NumberColumn(format="%.2f"),
+            }
+        )
+        
+        # Download & Copy
         c1, c2 = st.columns([3, 1])
         with c1:
             st.caption("Copy data di bawah ini untuk Paste ke Excel:")
-            st.code(df.to_csv(index=False, sep='\t'), language='csv')
+            st.code(edited_df.to_csv(index=False, sep='\t'), language='csv')
         with c2:
-            st.write("") # Spacer
+            st.write("") 
             st.write("") 
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Rekapitulasi')
+                edited_df.to_excel(writer, index=False, sheet_name='Rekapitulasi')
             st.download_button(
                 label="📥 Download Excel", 
                 data=output.getvalue(), 
@@ -265,15 +287,32 @@ if st.session_state['extracted_data']:
                 use_container_width=True
             )
 
+    # --- TAB 2: DASHBOARD (SIMPLE VISUALIZATION) ---
     with tab2:
+        st.markdown("##### Ringkasan Volume (Total TEUS)")
+        
+        # Siapkan data untuk grafik
+        if not edited_df.empty:
+            chart_data = edited_df[["Vessel", "TEUS IMPORT", "TEUS EXPORT", "TEUS T/S", "TEUS SHIFTING"]].set_index("Vessel")
+            st.bar_chart(chart_data)
+            
+            # Kartu Metrik Total
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Total Import (TEUs)", f"{edited_df['TEUS IMPORT'].sum():,.2f}")
+            m2.metric("Total Export (TEUs)", f"{edited_df['TEUS EXPORT'].sum():,.2f}")
+            m3.metric("Grand Total (TEUs)", f"{edited_df['Total Teus'].sum():,.2f}")
+
+    # --- TAB 3: COMBINE DATA ---
+    with tab3:
         st.markdown("##### Fitur Penjumlahan Multi-Kapal")
         
-        options = df['NO'].tolist()
-        choice_labels = {row['NO']: f"{row['NO']} - {row['Vessel']}" for index, row in df.iterrows()}
+        # Gunakan edited_df agar koreksi user terbawa ke sini
+        options = edited_df['NO'].tolist()
+        choice_labels = {row['NO']: f"{row['NO']} - {row['Vessel']}" for index, row in edited_df.iterrows()}
         selected_indices = st.multiselect("Pilih kapal yang ingin dijumlahkan:", options, format_func=lambda x: choice_labels.get(x))
 
         if selected_indices:
-            subset_df = df[df['NO'].isin(selected_indices)]
+            subset_df = edited_df[edited_df['NO'].isin(selected_indices)]
             st.info(f"Menjumlahkan {len(selected_indices)} data terpilih...")
             
             numeric_cols = subset_df.select_dtypes(include='number').columns
