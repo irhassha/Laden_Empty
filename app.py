@@ -23,11 +23,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- JUDUL ---
-st.title("⚓ NPCT1 Tally Extractor (Super Robust Version)")
+st.title("⚓ NPCT1 Tally Extractor (Smart Discovery Mode)")
 st.markdown("""
-**Mode Stabil & Privat:** 1. Masukkan API Key & Data Kapal.
-2. Upload potongan gambar tabel (tanpa header nama kapal).
-3. Sistem akan memproses menggunakan Direct API Call dengan **Auto-Fallback Model**.
+**Mode Pintar:** 1. Masukkan API Key & Data Kapal.
+2. Sistem akan **otomatis mencari model AI** yang tersedia di akun Google Anda.
+3. Tidak perlu khawatir salah versi model lagi.
 """)
 
 # --- SIDEBAR: KUNCI & INPUT MANUAL ---
@@ -53,12 +53,47 @@ with st.sidebar:
     input_vessel = st.text_input("Nama Kapal (Vessel Name)", value="Vessel A")
     input_service = st.text_input("Service / Voyage", value="Service A")
 
-# --- FUNGSI AI (VERSI REST API - NO LIB DEPENDENCY) ---
+# --- FUNGSI BARU: AUTO-DETECT MODEL ---
+def get_best_available_model(api_key):
+    """
+    Bertanya ke Google: Model apa yang tersedia untuk key ini?
+    Menghindari error 404 karena menebak nama model.
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            # Ambil semua model yang bisa generateContent
+            available_models = [
+                m['name'].replace('models/', '') 
+                for m in data.get('models', []) 
+                if 'generateContent' in m.get('supportedGenerationMethods', [])
+            ]
+            
+            if not available_models:
+                return None, "Tidak ada model yang mendukung generateContent."
+
+            # Prioritas Model (Cari yang Flash dulu karena cepat, lalu Pro)
+            # Kita cari string partial match
+            priority_order = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro', 'gemini-pro']
+            
+            for priority in priority_order:
+                # Cari model yang mengandung nama prioritas (misal gemini-1.5-flash-001 cocok dgn gemini-1.5-flash)
+                for model in available_models:
+                    if priority in model:
+                        return model, None
+            
+            # Jika tidak ada yang cocok dengan prioritas, ambil yang pertama saja
+            return available_models[0], None
+            
+        else:
+            return None, f"Gagal cek model. API Error: {response.status_code} - {response.text}"
+    except Exception as e:
+        return None, f"Koneksi error saat cek model: {e}"
+
+# --- FUNGSI AI (VERSI REST API) ---
 def extract_table_data(image, api_key):
-    """
-    Mengirim gambar ke Gemini via REST API standar.
-    Menggunakan mekanisme FALLBACK untuk mencoba beberapa model jika satu gagal.
-    """
     
     # 1. FIX IMAGE MODE
     if image.mode != 'RGB':
@@ -69,89 +104,72 @@ def extract_table_data(image, api_key):
     image.save(buffered, format="JPEG")
     img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
-    # Daftar Model untuk dicoba (Urutan prioritas: Cepat -> Stabil -> Kuat)
-    # Menghapus alias 'latest' yang sering berubah/error 404
-    models_to_try = [
-        "gemini-1.5-flash",      # Alias umum (biasanya paling aman)
-        "gemini-1.5-flash-001",  # Versi pinned (pasti ada)
-        "gemini-1.5-flash-002",  # Versi pinned baru
-        "gemini-1.5-pro",        # Alias umum Pro
-        "gemini-1.5-pro-001",    # Versi pinned Pro
-        "gemini-1.5-pro-002"     # Versi pinned Pro baru
-    ]
+    # 3. DAPATKAN NAMA MODEL SECARA DINAMIS
+    model_name, error_msg = get_best_available_model(api_key)
+    
+    if not model_name:
+        st.error(f"Stop: {error_msg}")
+        return None
+    
+    # Info ke user model apa yang dipakai (Optional debug)
+    # st.info(f"Menggunakan Model: {model_name}") 
 
-    last_error = ""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+    headers = {'Content-Type': 'application/json'}
 
-    # 3. Loop Try-Catch untuk setiap model
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        headers = {'Content-Type': 'application/json'}
+    prompt_text = """
+    Analisis gambar tabel operasi pelabuhan ini. Fokus hanya pada angka.
+    
+    TUGAS: Ekstrak data dan lakukan pemetaan kategori berikut:
+    1. EXPORT (Loading):
+       - BOX LADEN = Penjumlahan angka di baris 'FULL' + 'REEFER' + 'OOG' pada kolom LOADING.
+       - BOX EMPTY = Ambil angka di baris 'EMPTY' pada kolom LOADING.
+    2. TRANSHIPMENT / TS (Baris T/S):
+       - Ambil angkanya. Jika tidak spesifik, asumsikan Laden.
+    3. SHIFTING:
+       - Ambil total dari kolom SHIFTING.
+    
+    OUTPUT JSON Integer (0 jika kosong):
+    {
+        "export_laden_20": int, "export_laden_40": int, "export_laden_45": int,
+        "export_empty_20": int, "export_empty_40": int, "export_empty_45": int,
+        "ts_laden_20": int, "ts_laden_40": int, "ts_laden_45": int,
+        "ts_empty_20": int, "ts_empty_40": int, "ts_empty_45": int,
+        "shift_laden_20": int, "shift_laden_40": int, "shift_laden_45": int,
+        "shift_empty_20": int, "shift_empty_40": int, "shift_empty_45": int,
+        "total_shift_box": int, "total_shift_teus": float
+    }
+    """
 
-        prompt_text = """
-        Analisis gambar tabel operasi pelabuhan ini. Fokus hanya pada angka.
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt_text},
+                {"inline_data": {"mime_type": "image/jpeg", "data": img_str}}
+            ]
+        }],
+        "generationConfig": {"response_mime_type": "application/json"}
+    }
+
+    try:
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
         
-        TUGAS: Ekstrak data dan lakukan pemetaan kategori berikut:
-        1. EXPORT (Loading):
-           - BOX LADEN = Penjumlahan angka di baris 'FULL' + 'REEFER' + 'OOG' pada kolom LOADING.
-           - BOX EMPTY = Ambil angka di baris 'EMPTY' pada kolom LOADING.
-        2. TRANSHIPMENT / TS (Baris T/S):
-           - Ambil angkanya. Jika tidak spesifik, asumsikan Laden.
-        3. SHIFTING:
-           - Ambil total dari kolom SHIFTING.
-        
-        OUTPUT JSON Integer (0 jika kosong):
-        {
-            "export_laden_20": int, "export_laden_40": int, "export_laden_45": int,
-            "export_empty_20": int, "export_empty_40": int, "export_empty_45": int,
-            "ts_laden_20": int, "ts_laden_40": int, "ts_laden_45": int,
-            "ts_empty_20": int, "ts_empty_40": int, "ts_empty_45": int,
-            "shift_laden_20": int, "shift_laden_40": int, "shift_laden_45": int,
-            "shift_empty_20": int, "shift_empty_40": int, "shift_empty_45": int,
-            "total_shift_box": int, "total_shift_teus": float
-        }
-        """
+        if response.status_code == 200:
+            result = response.json()
+            try:
+                text_response = result['candidates'][0]['content']['parts'][0]['text']
+                clean_json = text_response.replace('```json', '').replace('```', '').strip()
+                return json.loads(clean_json)
+            except (KeyError, IndexError, json.JSONDecodeError):
+                st.error(f"Format JSON Salah dari model {model_name}. Coba lagi.")
+                return None
+        else:
+            st.error(f"API Error pada {model_name} ({response.status_code}): {response.text}")
+            return None
 
-        payload = {
-            "contents": [{
-                "parts": [
-                    {"text": prompt_text},
-                    {"inline_data": {"mime_type": "image/jpeg", "data": img_str}}
-                ]
-            }],
-            "generationConfig": {"response_mime_type": "application/json"}
-        }
-
-        try:
-            # Kirim Request
-            # st.toast(f"Mencoba model: {model_name}...", icon="🤖") # Optional: Debugging UI
-            response = requests.post(url, headers=headers, data=json.dumps(payload))
-            
-            if response.status_code == 200:
-                result = response.json()
-                try:
-                    text_response = result['candidates'][0]['content']['parts'][0]['text']
-                    clean_json = text_response.replace('```json', '').replace('```', '').strip()
-                    return json.loads(clean_json) # BERHASIL! Keluar dari loop
-                except (KeyError, IndexError, json.JSONDecodeError):
-                    last_error = f"Model {model_name} merespon tapi format salah."
-                    continue # Coba model berikutnya
-            else:
-                last_error = f"Model {model_name} Error {response.status_code}: {response.text}"
-                # Jika 404 (Model not found) atau 503 (Overloaded), lanjut ke model berikutnya
-                if response.status_code in [404, 503, 500]:
-                    time.sleep(1) # Jeda sebentar sebelum retry
-                    continue
-                else:
-                    # Error fatal (misal API Key salah), hentikan loop
-                    break
-
-        except Exception as e:
-            last_error = f"Connection Error pada {model_name}: {e}"
-            continue
-
-    # Jika loop selesai dan tidak ada return, berarti semua gagal
-    st.error(f"Gagal memproses gambar. Detail Error Terakhir: {last_error}")
-    return None
+    except Exception as e:
+        st.error(f"Koneksi Error: {e}")
+        return None
 
 # --- MAIN AREA ---
 uploaded_files = st.file_uploader("3. Upload Potongan Gambar Tabel (Bisa Banyak)", 
@@ -171,7 +189,7 @@ if st.button("🚀 Proses Ekstraksi") and uploaded_files and api_key:
         data = extract_table_data(image, api_key)
         
         if data:
-            # --- POST PROCESSING (HITUNG MATEMATIKA DI PYTHON) ---
+            # --- POST PROCESSING ---
             
             # 1. Total Box Export
             exp_laden_box = data.get('export_laden_20',0) + data.get('export_laden_40',0) + data.get('export_laden_45',0)
