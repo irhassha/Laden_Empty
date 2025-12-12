@@ -113,7 +113,7 @@ with st.sidebar:
         st.session_state['extracted_data'] = []
         st.session_state['images'] = {} 
         st.rerun()
-    st.info("Versi Aplikasi: 1.9 (Reverted)\nFitur: Smart Filter Recon")
+    st.info("Versi Aplikasi: 1.9.1 (Fixed)\nFitur: Smart Filter Recon")
 
 # --- HEADER ---
 st.title("⚓ NPCT1 Tally Extractor")
@@ -334,7 +334,17 @@ if st.session_state['extracted_data']:
         render_image_viewer(df, "recon") # Unified Viewer
         
         # --- FITUR SMART FILTER ---
-        cols_for_recon = [c for c in df.columns if c not in summary_cols and c != "NO"]
+        # FIX: Pastikan Vessel dan Service Name masuk, tapi NO dan Remark (jika ada di summary) tidak duplikat logic
+        # Ambil semua kolom yg BUKAN summary, lalu tambahkan Vessel & Service di depan
+        detail_cols = [c for c in df.columns if c not in summary_cols and c not in ["NO", "Vessel", "Service Name", "Remark"]]
+        
+        cols_for_recon = ["Vessel", "Service Name"] + detail_cols
+        
+        # Re-order columns to put Hatch Cover at the end if it exists
+        if "Hatch Cover" in cols_for_recon:
+             cols_for_recon.remove("Hatch Cover")
+             cols_for_recon.append("Hatch Cover")
+
         df_recon_base = df[cols_for_recon]
         
         col_f1, col_f2 = st.columns([2, 1])
@@ -344,7 +354,20 @@ if st.session_state['extracted_data']:
             hide_zeros = st.checkbox("Sembunyikan kolom kosong (0)", value=True)
         
         if hide_zeros:
-            valid_cols = [c for c in df_recon_base.columns if df_recon_base[c].sum() != 0 or c in ["Vessel", "Service Name"]]
+            # Filter kolom: Tampilkan jika Numeric & Sum != 0, ATAU jika kolom identitas (String)
+            valid_cols = []
+            for c in df_recon_base.columns:
+                # Selalu tampilkan identitas
+                if c in ["Vessel", "Service Name"]:
+                    valid_cols.append(c)
+                # Untuk data angka, cek apakah totalnya bukan 0
+                elif pd.api.types.is_numeric_dtype(df_recon_base[c]):
+                    if df_recon_base[c].sum() != 0:
+                        valid_cols.append(c)
+                # Kolom lain (non-numeric) tampilkan saja biar aman
+                else:
+                    valid_cols.append(c)
+            
             df_recon_display = df_recon_base[valid_cols]
         else:
             df_recon_display = df_recon_base
