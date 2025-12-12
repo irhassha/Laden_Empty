@@ -37,6 +37,9 @@ st.markdown("""
 # --- INITIALIZE SESSION STATE ---
 if 'extracted_data' not in st.session_state:
     st.session_state['extracted_data'] = []
+# State baru untuk menyimpan gambar asli agar bisa ditampilkan ulang
+if 'images' not in st.session_state:
+    st.session_state['images'] = {}
 
 # --- FUNGSI UTILITY: CACHE DATA MODEL ---
 @st.cache_data(ttl=300) 
@@ -85,8 +88,9 @@ with st.sidebar:
     st.divider()
     if st.button("🗑️ Hapus Semua Data", type="secondary", use_container_width=True):
         st.session_state['extracted_data'] = []
+        st.session_state['images'] = {} # Reset gambar juga
         st.rerun()
-    st.info("Versi Aplikasi: 1.5 (Recon Full)\nMode: Granular Data Extraction")
+    st.info("Versi Aplikasi: 1.6 (Interactive View)\nMode: Granular Data & Image Viewer")
 
 # --- HEADER APLIKASI ---
 st.title("⚓ NPCT1 Tally Extractor")
@@ -220,10 +224,13 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                                      ts_l_20,ts_l_40,ts_l_45,ts_e_20,ts_e_40,ts_e_45, tot_shift])
                 grand_tot_teus = teus_imp + teus_exp + teus_ts + teus_shift
 
+                # Index ID for linking data <-> image
+                data_id = len(st.session_state['extracted_data']) + 1
+
                 # --- DATA ROW CONSTRUCTION ---
                 row = {
-                    "NO": len(st.session_state['extracted_data']) + 1,
-                    "Vessel": f"{input_vessel} ({len(st.session_state['extracted_data']) + 1})",
+                    "NO": data_id,
+                    "Vessel": f"{input_vessel} ({data_id})",
                     "Service Name": input_service,
                     "Remark": 0,
                     
@@ -272,7 +279,11 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                     
                     "Hatch Cover": data.get('hatch_cover', 0)
                 }
+                
+                # --- SIMPAN DATA DAN GAMBAR ---
                 st.session_state['extracted_data'].append(row)
+                st.session_state['images'][data_id] = image # Simpan gambar dengan Key ID
+                
             progress_bar.progress((index + 1) / len(uploaded_files))
         
         status_text.success("Selesai!")
@@ -316,6 +327,29 @@ if st.session_state['extracted_data']:
     
     with tab1:
         st.markdown("##### Hasil Ekstraksi (Summary)")
+        
+        # --- FITUR VIEWER GAMBAR INTERAKTIF ---
+        st.markdown("---")
+        c_view1, c_view2 = st.columns([1, 2])
+        
+        with c_view1:
+            st.info("🔍 **Cek Gambar Asli**")
+            # Dropdown untuk memilih kapal
+            vessel_list = df['Vessel'].unique()
+            selected_vessel_view = st.selectbox("Pilih Kapal untuk ditampilkan:", vessel_list)
+            
+            # Ambil ID kapal yang dipilih
+            selected_row = df[df['Vessel'] == selected_vessel_view].iloc[0]
+            selected_id = selected_row['NO']
+            
+        with c_view2:
+            # Tampilkan gambar jika ada di session state
+            if selected_id in st.session_state['images']:
+                st.image(st.session_state['images'][selected_id], caption=f"Dokumen Asli: {selected_vessel_view}", use_container_width=True)
+            else:
+                st.warning("Gambar asli tidak ditemukan di memori (mungkin sesi telah habis).")
+        st.markdown("---")
+        
         edited_df = st.data_editor(df[summary_cols], num_rows="dynamic", use_container_width=True, column_config={"NO": st.column_config.NumberColumn(disabled=True)})
         
         c1, c2 = st.columns([3,1])
