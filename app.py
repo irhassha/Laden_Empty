@@ -113,7 +113,7 @@ with st.sidebar:
         st.session_state['extracted_data'] = []
         st.session_state['images'] = {} 
         st.rerun()
-    st.info("Versi Aplikasi: 1.9.1 (Fixed)\nFitur: Smart Filter Recon")
+    st.info("Versi Aplikasi: 1.9.2 (Simple Name)\nFitur: Default Vessel Name")
 
 # --- HEADER ---
 st.title("⚓ NPCT1 Tally Extractor")
@@ -124,7 +124,7 @@ st.divider()
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("1. Identitas Kapal")
-    input_vessel = st.text_input("Nama Kapal (Vessel Name)", value="Vessel A", placeholder="Contoh: MV. SINAR SUNDA")
+    input_vessel = st.text_input("Nama Kapal (Vessel Name)", value="Vessel", placeholder="Contoh: MV. SINAR SUNDA")
     input_service = st.text_input("Service / Voyage", value="Service A", placeholder="Contoh: 001N")
 with col2:
     st.subheader("2. Upload Laporan")
@@ -250,7 +250,7 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
 
                 # Row Dict
                 row = {
-                    "NO": data_id, "Vessel": f"{input_vessel} ({data_id})", "Service Name": input_service, "Remark": 0,
+                    "NO": data_id, "Vessel": input_vessel, "Service Name": input_service, "Remark": 0,
                     
                     "IMP_LADEN_20": i_l_20, "IMP_LADEN_40": i_l_40, "IMP_LADEN_45": i_l_45, "IMP_EMPTY_20": i_e_20, "IMP_EMPTY_40": i_e_40, "IMP_EMPTY_45": i_e_45,
                     "TOTAL BOX IMPORT": sum([i_l_20,i_l_40,i_l_45,i_e_20,i_e_40,i_e_45]), "TEUS IMPORT": teus_imp,
