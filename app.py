@@ -114,7 +114,7 @@ with st.sidebar:
         st.session_state['extracted_data'] = []
         st.session_state['images'] = {} 
         st.rerun()
-    st.info("Versi Aplikasi: 2.3.1 (URL Fix)\nFitur: Enhanced Error Handling")
+    st.info("Versi Aplikasi: 2.4 (DG & Hatch Fix)\nFitur: Enhanced Extraction Logic")
 
 # --- HEADER ---
 st.title("⚓ RBM Auto Tally")
@@ -148,15 +148,15 @@ def extract_table_data(image, api_key):
         Analisis gambar tabel operasi pelabuhan ini. Saya butuh data detail (granular) per sel matriks.
         
         STRUKTUR DATA DI GAMBAR:
-        Baris (Rows): FULL, REEFER, OOG, DG (Dangerous Goods), T/S FULL, T/S DG, T/S EMPTY, T/S OOG, EMPTY
+        Baris (Rows): FULL, REEFER, OOG, DG (atau IMO/Dangerous), T/S FULL, T/S DG, T/S EMPTY, T/S OOG, EMPTY.
         Kolom (Cols): 
         - DISCHARGE (IMPORT): 20, 40, 45
         - LOADING (EXPORT): 20, 40, 45
         - SHIFTING (RESTOW): 20, 40, 45
         
         TUGAS PENTING:
-        1. DG (Dangerous Goods): Jika ada baris/kolom DG, ekstrak angkanya.
-        2. HATCH COVER: Cari label "Hatch Cover". Jika tidak ada/ragu, ISI 0.
+        1. DG / IMO: Cari baris berlabel "DG", "IMO", atau "Dangerous". Ekstrak angkanya ke field '_dg'.
+        2. HATCH COVER: Cari sel khusus berlabel "Hatch Cover". Nilainya biasanya KECIL (0-50). JANGAN ambil angka Total Box (ratusan/ribuan) sebagai Hatch Cover.
         3. Ekstrak angka integer. Jika sel kosong/strip, ISI 0.
         
         OUTPUT JSON FORMAT (snake_case):
@@ -274,9 +274,9 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
 
                 data_id = len(st.session_state['extracted_data']) + 1
                 
-                # Logic Guard untuk Hatch Cover
+                # Logic Guard untuk Hatch Cover (Jika nilai tidak masuk akal > 200, set 0)
                 hatch_val = data.get('hatch_cover', 0)
-                if hatch_val > 500:
+                if hatch_val > 200:
                     hatch_val = 0
 
                 # Row Dict (UPDATED: AUTO NAME)
