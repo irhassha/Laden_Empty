@@ -42,7 +42,8 @@ if 'images' not in st.session_state:
 # --- FUNGSI UTILITY ---
 @st.cache_data(ttl=300) 
 def get_prioritized_models(api_key):
-    url = f"[https://generativelanguage.googleapis.com/v1beta/models?key=](https://generativelanguage.googleapis.com/v1beta/models?key=){api_key}"
+    # Fixed URL format
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
@@ -113,7 +114,7 @@ with st.sidebar:
         st.session_state['extracted_data'] = []
         st.session_state['images'] = {} 
         st.rerun()
-    st.info("Versi Aplikasi: 2.3 (Debug Mode)\nFitur: Enhanced Error Handling")
+    st.info("Versi Aplikasi: 2.3.1 (URL Fix)\nFitur: Enhanced Error Handling")
 
 # --- HEADER ---
 st.title("⚓ RBM Auto Tally")
@@ -139,7 +140,8 @@ def extract_table_data(image, api_key):
     for model_name in candidate_models:
         if "experimental" in model_name: continue
 
-        url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){model_name}:generateContent?key={api_key}"
+        # Fixed URL format
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         
         prompt_text = """
@@ -226,6 +228,7 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                 # --- CALCULATIONS & MAPPING (MERGE DG TO FULL) ---
                 
                 # Import Summary (DG is merged into Full Laden in calculation)
+                # Note: Full in summary = Full Raw + DG Raw
                 i_l_20 = data.get('imp_20_full',0) + data.get('imp_20_dg',0) + data.get('imp_20_reefer',0) + data.get('imp_20_oog',0)
                 i_l_40 = data.get('imp_40_full',0) + data.get('imp_40_dg',0) + data.get('imp_40_reefer',0) + data.get('imp_40_oog',0)
                 i_l_45 = data.get('imp_45_full',0) + data.get('imp_45_dg',0) + data.get('imp_45_reefer',0) + data.get('imp_45_oog',0)
@@ -244,6 +247,7 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                 e_e_45 = data.get('exp_45_empty',0)
 
                 # TS Summary (DG kept separate or aggregated based on standard logic)
+                # Note: Standard TS Summary usually just sums boxes.
                 ts_l_20 = data.get('imp_20_ts_full',0) + data.get('imp_20_ts_dg',0) + data.get('imp_20_ts_oog',0) + data.get('exp_20_ts_full',0) + data.get('exp_20_ts_dg',0) + data.get('exp_20_ts_oog',0)
                 ts_l_40 = data.get('imp_40_ts_full',0) + data.get('imp_40_ts_dg',0) + data.get('imp_40_ts_oog',0) + data.get('exp_40_ts_full',0) + data.get('exp_40_ts_dg',0) + data.get('exp_40_ts_oog',0)
                 ts_l_45 = data.get('imp_45_ts_full',0) + data.get('imp_45_ts_dg',0) + data.get('imp_45_ts_oog',0) + data.get('exp_45_ts_full',0) + data.get('exp_45_ts_dg',0) + data.get('exp_45_ts_oog',0)
@@ -319,9 +323,9 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                     "EXP_45_Reefer": data.get('exp_45_reefer',0), "EXP_45_OOG": data.get('exp_45_oog',0),
                     "EXP_45_TS_Full": data.get('exp_45_ts_full',0), "EXP_45_TS_Reefer": 0, "EXP_45_TS_OOG": data.get('exp_45_ts_oog',0), "EXP_45_TS_DG": data.get('exp_45_ts_dg',0), "EXP_45_TS_Empty": data.get('exp_45_ts_empty',0), "EXP_45_Empty": data.get('exp_45_empty',0), "EXP_45_LCL": 0,
 
-                    "SHIFT_20_Full": data.get('shift_20_full',0), "SHIFT_20_Reefer": data.get('shift_20_reefer',0), "SHIFT_20_OOG": 0, "SHIFT_20_TS_Full": 0, "SHIFT_20_TS_Reefer": 0, "SHIFT_20_TS_OOG": 0, "SHIFT_20_TS_DG": 0, "SHIFT_20_TS_Empty": 0, "SHIFT_20_Empty": data.get('shift_20_empty',0), "SHIFT_20_LCL": 0,
-                    "SHIFT_40_Full": data.get('shift_40_full',0), "SHIFT_40_Reefer": data.get('shift_40_reefer',0), "SHIFT_40_OOG": 0, "SHIFT_40_TS_Full": 0, "SHIFT_40_TS_Reefer": 0, "SHIFT_40_TS_OOG": 0, "SHIFT_40_TS_DG": 0, "SHIFT_40_TS_Empty": 0, "SHIFT_40_Empty": data.get('shift_40_empty',0), "SHIFT_40_LCL": 0,
-                    "SHIFT_45_Full": data.get('shift_45_full',0), "SHIFT_45_Reefer": data.get('shift_45_reefer',0), "SHIFT_45_OOG": 0, "SHIFT_45_TS_Full": 0, "SHIFT_45_TS_Reefer": 0, "SHIFT_45_TS_OOG": 0, "SHIFT_45_TS_DG": 0, "SHIFT_45_TS_Empty": 0, "SHIFT_45_Empty": data.get('shift_45_empty',0), "SHIFT_45_LCL": 0,
+                    "SHIFT_20_Full": data.get('shift_20_full',0), "SHIFT_20_Reefer": data.get('shift_20_reefer',0), "SHIFT_20_empty": data.get('shift_20_empty',0), "SHIFT_20_LCL": 0,
+                    "SHIFT_40_Full": data.get('shift_40_full',0), "SHIFT_40_Reefer": data.get('shift_40_reefer',0), "SHIFT_40_empty": data.get('shift_40_empty',0), "SHIFT_40_LCL": 0,
+                    "SHIFT_45_Full": data.get('shift_45_full',0), "SHIFT_45_Reefer": data.get('shift_45_reefer',0), "SHIFT_45_empty": data.get('shift_45_empty',0), "SHIFT_45_LCL": 0,
                     
                     "Hatch Cover": hatch_val
                 }
