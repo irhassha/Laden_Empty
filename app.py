@@ -37,11 +37,10 @@ st.markdown("""
 # --- INITIALIZE SESSION STATE ---
 if 'extracted_data' not in st.session_state:
     st.session_state['extracted_data'] = []
-# State baru untuk menyimpan gambar asli agar bisa ditampilkan ulang
 if 'images' not in st.session_state:
     st.session_state['images'] = {}
 
-# --- FUNGSI UTILITY: CACHE DATA MODEL ---
+# --- FUNGSI UTILITY ---
 @st.cache_data(ttl=300) 
 def get_prioritized_models(api_key):
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
@@ -65,7 +64,32 @@ def get_prioritized_models(api_key):
     except Exception:
         return []
 
-# --- SIDEBAR: KONFIGURASI API ---
+def render_image_viewer(df, key_suffix):
+    """Helper function untuk menampilkan viewer gambar yang konsisten di berbagai tab"""
+    st.markdown("---")
+    c_view1, c_view2 = st.columns([1, 2])
+    
+    with c_view1:
+        st.info("🔍 **Cek Gambar Asli**")
+        vessel_list = df['Vessel'].unique()
+        # Gunakan key unik agar widget tidak bentrok antar tab
+        selected_vessel = st.selectbox("Pilih Kapal:", vessel_list, key=f"v_sel_{key_suffix}")
+        
+        # Ambil ID kapal yang dipilih
+        if not df.empty:
+            selected_row = df[df['Vessel'] == selected_vessel].iloc[0]
+            selected_id = selected_row['NO']
+        else:
+            selected_id = None
+        
+    with c_view2:
+        if selected_id and selected_id in st.session_state['images']:
+            st.image(st.session_state['images'][selected_id], caption=f"Dokumen Asli: {selected_vessel}", use_container_width=True)
+        else:
+            st.warning("Gambar asli tidak ditemukan.")
+    st.markdown("---")
+
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("⚙️ Pengaturan")
     if "GEMINI_API_KEY" in st.secrets:
@@ -88,11 +112,11 @@ with st.sidebar:
     st.divider()
     if st.button("🗑️ Hapus Semua Data", type="secondary", use_container_width=True):
         st.session_state['extracted_data'] = []
-        st.session_state['images'] = {} # Reset gambar juga
+        st.session_state['images'] = {} 
         st.rerun()
-    st.info("Versi Aplikasi: 1.7 (Full Interactive)\nMode: Editable Recon & Image Viewer")
+    st.info("Versi Aplikasi: 1.8 (Polished)\nFitur: Smart Filter & Unified Export")
 
-# --- HEADER APLIKASI ---
+# --- HEADER ---
 st.title("⚓ NPCT1 Tally Extractor")
 st.markdown("Automasi ekstraksi data operasional pelabuhan dari gambar laporan ke Excel.")
 st.divider()
@@ -107,7 +131,7 @@ with col2:
     st.subheader("2. Upload Laporan")
     uploaded_files = st.file_uploader("Upload Potongan Gambar Tabel", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
 
-# --- FUNGSI EKSTRAKSI CORE ---
+# --- FUNGSI EKSTRAKSI ---
 def extract_table_data(image, api_key):
     if image.mode != 'RGB': image = image.convert('RGB')
     buffered = io.BytesIO()
@@ -123,7 +147,6 @@ def extract_table_data(image, api_key):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         
-        # PROMPT SUPER DETAIL UNTUK MATRIKS RECON
         prompt_text = """
         Analisis gambar tabel operasi pelabuhan ini. Saya butuh data detail (granular) per sel matriks.
         
@@ -182,7 +205,7 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
             data = extract_table_data(image, api_key)
             
             if data:
-                # --- CALCULATIONS ---
+                # --- CALCULATIONS & MAPPING ---
                 # Import Summary
                 i_l_20 = data.get('imp_20_full',0) + data.get('imp_20_reefer',0) + data.get('imp_20_oog',0)
                 i_l_40 = data.get('imp_40_full',0) + data.get('imp_40_reefer',0) + data.get('imp_40_oog',0)
@@ -199,7 +222,7 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                 e_e_40 = data.get('exp_40_empty',0)
                 e_e_45 = data.get('exp_45_empty',0)
 
-                # TS Summary (Mapping T/S rows from Import+Export to Summary)
+                # TS Summary
                 ts_l_20 = data.get('imp_20_ts_full',0) + data.get('imp_20_ts_oog',0) + data.get('exp_20_ts_full',0) + data.get('exp_20_ts_oog',0)
                 ts_l_40 = data.get('imp_40_ts_full',0) + data.get('imp_40_ts_oog',0) + data.get('exp_40_ts_full',0) + data.get('exp_40_ts_oog',0)
                 ts_l_45 = data.get('imp_45_ts_full',0) + data.get('imp_45_ts_oog',0) + data.get('exp_45_ts_full',0) + data.get('exp_45_ts_oog',0)
@@ -212,7 +235,7 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                 teus_exp = (e_l_20*1 + e_l_40*2 + e_l_45*2.25) + (e_e_20*1 + e_e_40*2 + e_e_45*2.25)
                 teus_ts = (ts_l_20*1 + ts_l_40*2 + ts_l_45*2.25) + (ts_e_20*1 + ts_e_40*2 + ts_e_45*2.25)
                 
-                # Shifting Calc
+                # Shifting
                 s_20 = data.get('shift_20_full',0) + data.get('shift_20_reefer',0) + data.get('shift_20_empty',0)
                 s_40 = data.get('shift_40_full',0) + data.get('shift_40_reefer',0) + data.get('shift_40_empty',0)
                 s_45 = data.get('shift_45_full',0) + data.get('shift_45_reefer',0) + data.get('shift_45_empty',0)
@@ -224,35 +247,25 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                                      ts_l_20,ts_l_40,ts_l_45,ts_e_20,ts_e_40,ts_e_45, tot_shift])
                 grand_tot_teus = teus_imp + teus_exp + teus_ts + teus_shift
 
-                # Index ID for linking data <-> image
                 data_id = len(st.session_state['extracted_data']) + 1
 
-                # --- DATA ROW CONSTRUCTION ---
+                # Row Dict
                 row = {
-                    "NO": data_id,
-                    "Vessel": f"{input_vessel} ({data_id})",
-                    "Service Name": input_service,
-                    "Remark": 0,
+                    "NO": data_id, "Vessel": f"{input_vessel} ({data_id})", "Service Name": input_service, "Remark": 0,
                     
-                    # --- SUMMARY TAB DATA ---
-                    "IMP_LADEN_20": i_l_20, "IMP_LADEN_40": i_l_40, "IMP_LADEN_45": i_l_45,
-                    "IMP_EMPTY_20": i_e_20, "IMP_EMPTY_40": i_e_40, "IMP_EMPTY_45": i_e_45,
+                    "IMP_LADEN_20": i_l_20, "IMP_LADEN_40": i_l_40, "IMP_LADEN_45": i_l_45, "IMP_EMPTY_20": i_e_20, "IMP_EMPTY_40": i_e_40, "IMP_EMPTY_45": i_e_45,
                     "TOTAL BOX IMPORT": sum([i_l_20,i_l_40,i_l_45,i_e_20,i_e_40,i_e_45]), "TEUS IMPORT": teus_imp,
 
-                    "EXP_LADEN_20": e_l_20, "EXP_LADEN_40": e_l_40, "EXP_LADEN_45": e_l_45,
-                    "EXP_EMPTY_20": e_e_20, "EXP_EMPTY_40": e_e_40, "EXP_EMPTY_45": e_e_45,
+                    "EXP_LADEN_20": e_l_20, "EXP_LADEN_40": e_l_40, "EXP_LADEN_45": e_l_45, "EXP_EMPTY_20": e_e_20, "EXP_EMPTY_40": e_e_40, "EXP_EMPTY_45": e_e_45,
                     "TOTAL BOX EXPORT": sum([e_l_20,e_l_40,e_l_45,e_e_20,e_e_40,e_e_45]), "TEUS EXPORT": teus_exp,
 
-                    "TS_LADEN_20": ts_l_20, "TS_LADEN_40": ts_l_40, "TS_LADEN_45": ts_l_45,
-                    "TS_EMPTY_20": ts_e_20, "TS_EMPTY_40": ts_e_40, "TS_EMPTY_45": ts_e_45,
+                    "TS_LADEN_20": ts_l_20, "TS_LADEN_40": ts_l_40, "TS_LADEN_45": ts_l_45, "TS_EMPTY_20": ts_e_20, "TS_EMPTY_40": ts_e_40, "TS_EMPTY_45": ts_e_45,
                     "TOTAL BOX T/S": sum([ts_l_20,ts_l_40,ts_l_45,ts_e_20,ts_e_40,ts_e_45]), "TEUS T/S": teus_ts,
 
                     "TOTAL BOX SHIFTING": tot_shift, "TEUS SHIFTING": teus_shift,
                     "Total (Boxes)": grand_tot_box, "Total Teus": grand_tot_teus,
 
-                    # --- RECON TAB DATA (FULL DETAILED MAPPING) ---
-                    # Format: Activity_Size_Type
-                    # IMPORT (DISCHARGE)
+                    # RECON DATA
                     "IMP_20_Full": data.get('imp_20_full',0), "IMP_20_Reefer": data.get('imp_20_reefer',0), "IMP_20_OOG": data.get('imp_20_oog',0),
                     "IMP_20_TS_Full": data.get('imp_20_ts_full',0), "IMP_20_TS_Reefer": 0, "IMP_20_TS_OOG": data.get('imp_20_ts_oog',0), "IMP_20_TS_DG": 0, "IMP_20_TS_Empty": data.get('imp_20_ts_empty',0), "IMP_20_Empty": data.get('imp_20_empty',0), "IMP_20_LCL": 0,
                     
@@ -262,7 +275,6 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                     "IMP_45_Full": data.get('imp_45_full',0), "IMP_45_Reefer": data.get('imp_45_reefer',0), "IMP_45_OOG": data.get('imp_45_oog',0),
                     "IMP_45_TS_Full": data.get('imp_45_ts_full',0), "IMP_45_TS_Reefer": 0, "IMP_45_TS_OOG": data.get('imp_45_ts_oog',0), "IMP_45_TS_DG": 0, "IMP_45_TS_Empty": data.get('imp_45_ts_empty',0), "IMP_45_Empty": data.get('imp_45_empty',0), "IMP_45_LCL": 0,
 
-                    # EXPORT (LOADING)
                     "EXP_20_Full": data.get('exp_20_full',0), "EXP_20_Reefer": data.get('exp_20_reefer',0), "EXP_20_OOG": data.get('exp_20_oog',0),
                     "EXP_20_TS_Full": data.get('exp_20_ts_full',0), "EXP_20_TS_Reefer": 0, "EXP_20_TS_OOG": data.get('exp_20_ts_oog',0), "EXP_20_TS_DG": 0, "EXP_20_TS_Empty": data.get('exp_20_ts_empty',0), "EXP_20_Empty": data.get('exp_20_empty',0), "EXP_20_LCL": 0,
                     
@@ -272,7 +284,6 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                     "EXP_45_Full": data.get('exp_45_full',0), "EXP_45_Reefer": data.get('exp_45_reefer',0), "EXP_45_OOG": data.get('exp_45_oog',0),
                     "EXP_45_TS_Full": data.get('exp_45_ts_full',0), "EXP_45_TS_Reefer": 0, "EXP_45_TS_OOG": data.get('exp_45_ts_oog',0), "EXP_45_TS_DG": 0, "EXP_45_TS_Empty": data.get('exp_45_ts_empty',0), "EXP_45_Empty": data.get('exp_45_empty',0), "EXP_45_LCL": 0,
 
-                    # SHIFTING (RESTOW) - Asumsi struktur sama, fill 0 untuk yg tidak ada di gambar
                     "SHIFT_20_Full": data.get('shift_20_full',0), "SHIFT_20_Reefer": data.get('shift_20_reefer',0), "SHIFT_20_OOG": 0, "SHIFT_20_TS_Full": 0, "SHIFT_20_TS_Reefer": 0, "SHIFT_20_TS_OOG": 0, "SHIFT_20_TS_DG": 0, "SHIFT_20_TS_Empty": 0, "SHIFT_20_Empty": data.get('shift_20_empty',0), "SHIFT_20_LCL": 0,
                     "SHIFT_40_Full": data.get('shift_40_full',0), "SHIFT_40_Reefer": data.get('shift_40_reefer',0), "SHIFT_40_OOG": 0, "SHIFT_40_TS_Full": 0, "SHIFT_40_TS_Reefer": 0, "SHIFT_40_TS_OOG": 0, "SHIFT_40_TS_DG": 0, "SHIFT_40_TS_Empty": 0, "SHIFT_40_Empty": data.get('shift_40_empty',0), "SHIFT_40_LCL": 0,
                     "SHIFT_45_Full": data.get('shift_45_full',0), "SHIFT_45_Reefer": data.get('shift_45_reefer',0), "SHIFT_45_OOG": 0, "SHIFT_45_TS_Full": 0, "SHIFT_45_TS_Reefer": 0, "SHIFT_45_TS_OOG": 0, "SHIFT_45_TS_DG": 0, "SHIFT_45_TS_Empty": 0, "SHIFT_45_Empty": data.get('shift_45_empty',0), "SHIFT_45_LCL": 0,
@@ -280,9 +291,8 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                     "Hatch Cover": data.get('hatch_cover', 0)
                 }
                 
-                # --- SIMPAN DATA DAN GAMBAR ---
                 st.session_state['extracted_data'].append(row)
-                st.session_state['images'][data_id] = image # Simpan gambar dengan Key ID
+                st.session_state['images'][data_id] = image
                 
             progress_bar.progress((index + 1) / len(uploaded_files))
         
@@ -295,110 +305,70 @@ if st.session_state['extracted_data']:
     df = pd.DataFrame(st.session_state['extracted_data'])
     st.divider()
     
-    # 1. SUMMARY COLS
+    # Define Column Groups
     summary_cols = ["NO", "Vessel", "Service Name", "Remark", "IMP_LADEN_20", "IMP_LADEN_40", "IMP_LADEN_45", "IMP_EMPTY_20", "IMP_EMPTY_40", "IMP_EMPTY_45", "TOTAL BOX IMPORT", "TEUS IMPORT", "EXP_LADEN_20", "EXP_LADEN_40", "EXP_LADEN_45", "EXP_EMPTY_20", "EXP_EMPTY_40", "EXP_EMPTY_45", "TOTAL BOX EXPORT", "TEUS EXPORT", "TS_LADEN_20", "TS_LADEN_40", "TS_LADEN_45", "TS_EMPTY_20", "TS_EMPTY_40", "TS_EMPTY_45", "TOTAL BOX T/S", "TEUS T/S", "TOTAL BOX SHIFTING", "TEUS SHIFTING", "Total (Boxes)", "Total Teus"]
-    
-    # 2. RECON COLS (Urutan sesuai CSV)
-    recon_cols = ["Vessel", "Service Name"]
-    # Import 20
-    recon_cols += ["IMP_20_Full", "IMP_20_Reefer", "IMP_20_OOG", "IMP_20_TS_Full", "IMP_20_TS_Reefer", "IMP_20_TS_OOG", "IMP_20_TS_DG", "IMP_20_TS_Empty", "IMP_20_Empty", "IMP_20_LCL"]
-    # Import 40
-    recon_cols += ["IMP_40_Full", "IMP_40_Reefer", "IMP_40_OOG", "IMP_40_TS_Full", "IMP_40_TS_Reefer", "IMP_40_TS_OOG", "IMP_40_TS_DG", "IMP_40_TS_Empty", "IMP_40_Empty", "IMP_40_LCL"]
-    # Import 45
-    recon_cols += ["IMP_45_Full", "IMP_45_Reefer", "IMP_45_OOG", "IMP_45_TS_Full", "IMP_45_TS_Reefer", "IMP_45_TS_OOG", "IMP_45_TS_DG", "IMP_45_TS_Empty", "IMP_45_Empty", "IMP_45_LCL"]
-    
-    # Export 20
-    recon_cols += ["EXP_20_Full", "EXP_20_Reefer", "EXP_20_OOG", "EXP_20_TS_Full", "EXP_20_TS_Reefer", "EXP_20_TS_OOG", "EXP_20_TS_DG", "EXP_20_TS_Empty", "EXP_20_Empty", "EXP_20_LCL"]
-    # Export 40
-    recon_cols += ["EXP_40_Full", "EXP_40_Reefer", "EXP_40_OOG", "EXP_40_TS_Full", "EXP_40_TS_Reefer", "EXP_40_TS_OOG", "EXP_40_TS_DG", "EXP_40_TS_Empty", "EXP_40_Empty", "EXP_40_LCL"]
-    # Export 45
-    recon_cols += ["EXP_45_Full", "EXP_45_Reefer", "EXP_45_OOG", "EXP_45_TS_Full", "EXP_45_TS_Reefer", "EXP_45_TS_OOG", "EXP_45_TS_DG", "EXP_45_TS_Empty", "EXP_45_Empty", "EXP_45_LCL"]
-
-    # Shifting 20
-    recon_cols += ["SHIFT_20_Full", "SHIFT_20_Reefer", "SHIFT_20_OOG", "SHIFT_20_TS_Full", "SHIFT_20_TS_Reefer", "SHIFT_20_TS_OOG", "SHIFT_20_TS_DG", "SHIFT_20_TS_Empty", "SHIFT_20_Empty", "SHIFT_20_LCL"]
-    # Shifting 40
-    recon_cols += ["SHIFT_40_Full", "SHIFT_40_Reefer", "SHIFT_40_OOG", "SHIFT_40_TS_Full", "SHIFT_40_TS_Reefer", "SHIFT_40_TS_OOG", "SHIFT_40_TS_DG", "SHIFT_40_TS_Empty", "SHIFT_40_Empty", "SHIFT_40_LCL"]
-    # Shifting 45
-    recon_cols += ["SHIFT_45_Full", "SHIFT_45_Reefer", "SHIFT_45_OOG", "SHIFT_45_TS_Full", "SHIFT_45_TS_Reefer", "SHIFT_45_TS_OOG", "SHIFT_45_TS_DG", "SHIFT_45_TS_Empty", "SHIFT_45_Empty", "SHIFT_45_LCL"]
-    
-    recon_cols += ["Hatch Cover"]
+    recon_cols = ["Vessel", "Service Name"] + [c for c in df.columns if c not in summary_cols and c not in ["NO", "Vessel", "Service Name", "Remark"]]
+    recon_cols.append("Hatch Cover") # Ensure order if needed, but simple filtering is easier
 
     tab1, tab_recon, tab2, tab3 = st.tabs(["📋 Data Detail (Edit)", "🔬 Recon (Detail - Edit)", "📊 Dashboard", "➕ Gabung Data"])
     
+    # --- TAB 1: SUMMARY ---
     with tab1:
         st.markdown("##### Hasil Ekstraksi (Summary)")
-        
-        # --- FITUR VIEWER GAMBAR INTERAKTIF TAB 1 ---
-        st.markdown("---")
-        c_view1, c_view2 = st.columns([1, 2])
-        
-        with c_view1:
-            st.info("🔍 **Cek Gambar Asli**")
-            # Dropdown untuk memilih kapal
-            vessel_list = df['Vessel'].unique()
-            selected_vessel_view = st.selectbox("Pilih Kapal:", vessel_list, key="v_sel_tab1")
-            
-            # Ambil ID kapal yang dipilih
-            selected_row = df[df['Vessel'] == selected_vessel_view].iloc[0]
-            selected_id = selected_row['NO']
-            
-        with c_view2:
-            # Tampilkan gambar jika ada di session state
-            if selected_id in st.session_state['images']:
-                st.image(st.session_state['images'][selected_id], caption=f"Dokumen Asli: {selected_vessel_view}", use_container_width=True)
-            else:
-                st.warning("Gambar asli tidak ditemukan.")
-        st.markdown("---")
+        render_image_viewer(df, "tab1") # Unified Viewer
         
         edited_df = st.data_editor(df[summary_cols], num_rows="dynamic", use_container_width=True, column_config={"NO": st.column_config.NumberColumn(disabled=True)})
         
-        c1, c2 = st.columns([3,1])
-        c1.caption("Copy data:")
-        c1.code(edited_df.to_csv(index=False, sep='\t'), language='csv')
-        
+        # Download Button untuk Summary Saja (Legacy)
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             edited_df.to_excel(writer, index=False, sheet_name='Summary')
-        c2.download_button("📥 Excel Summary", data=output.getvalue(), file_name=f"Rekap_{input_vessel}.xlsx", use_container_width=True)
+        st.download_button("📥 Excel Summary Only", data=output.getvalue(), file_name=f"Summary_{input_vessel}.xlsx")
 
+    # --- TAB RECON: GRANULAR ---
     with tab_recon:
         st.markdown("##### Data Recon (Full Detail)")
-        st.caption("Berisi rincian lengkap untuk rekonsiliasi (DG, LCL, dll diset 0 jika tidak ada di gambar).")
+        render_image_viewer(df, "recon") # Unified Viewer
         
-        # --- FITUR VIEWER GAMBAR INTERAKTIF TAB RECON (Copied logic) ---
-        st.markdown("---")
-        c_recon_view1, c_recon_view2 = st.columns([1, 2])
+        # --- FITUR SMART FILTER ---
+        # Ambil kolom Recon yang relevan (semua yg tidak ada di summary)
+        cols_for_recon = [c for c in df.columns if c not in summary_cols and c != "NO"]
+        df_recon_base = df[cols_for_recon]
         
-        with c_recon_view1:
-            st.info("🔍 **Cek Gambar Asli**")
-            # Dropdown untuk memilih kapal (key harus beda biar gak bentrok)
-            vessel_list_recon = df['Vessel'].unique()
-            selected_vessel_recon = st.selectbox("Pilih Kapal:", vessel_list_recon, key="v_sel_recon")
-            
-            # Ambil ID kapal yang dipilih
-            selected_row_recon = df[df['Vessel'] == selected_vessel_recon].iloc[0]
-            selected_id_recon = selected_row_recon['NO']
-            
-        with c_recon_view2:
-            if selected_id_recon in st.session_state['images']:
-                st.image(st.session_state['images'][selected_id_recon], caption=f"Dokumen Asli: {selected_vessel_recon}", use_container_width=True)
-            else:
-                st.warning("Gambar asli tidak ditemukan.")
-        st.markdown("---")
+        col_f1, col_f2 = st.columns([2, 1])
+        with col_f1:
+            st.caption("Mode Edit Aktif. Gunakan filter di kanan untuk menyederhanakan tampilan.")
+        with col_f2:
+            hide_zeros = st.checkbox("Sembunyikan kolom kosong (0)", value=True)
+        
+        if hide_zeros:
+            # Filter kolom yang punya setidaknya satu nilai non-zero
+            valid_cols = [c for c in df_recon_base.columns if df_recon_base[c].sum() != 0 or c in ["Vessel", "Service Name"]]
+            df_recon_display = df_recon_base[valid_cols]
+        else:
+            df_recon_display = df_recon_base
 
-        # Menggunakan st.data_editor agar bisa diedit
-        df_recon = df[recon_cols]
-        edited_df_recon = st.data_editor(df_recon, num_rows="dynamic", use_container_width=True)
+        edited_df_recon = st.data_editor(df_recon_display, num_rows="dynamic", use_container_width=True)
         
-        c1, c2 = st.columns([3,1])
-        c1.code(edited_df_recon.to_csv(index=False, sep='\t'), language='csv')
-        
-        output_recon = io.BytesIO()
-        with pd.ExcelWriter(output_recon, engine='openpyxl') as writer:
-            # Gunakan hasil edit untuk didownload
-            edited_df_recon.to_excel(writer, index=False, sheet_name='Recon')
-        c2.download_button("📥 Excel Recon", data=output_recon.getvalue(), file_name=f"Recon_{input_vessel}.xlsx", use_container_width=True)
+        # --- FITUR DOWNLOAD ALL-IN-ONE ---
+        st.write("")
+        st.markdown("### 📥 Download Laporan Lengkap")
+        output_full = io.BytesIO()
+        with pd.ExcelWriter(output_full, engine='openpyxl') as writer:
+            edited_df.to_excel(writer, index=False, sheet_name='Summary')
+            # Untuk sheet Recon, kita pakai data lengkap (termasuk 0) agar format standar tetap terjaga
+            df[cols_for_recon].to_excel(writer, index=False, sheet_name='Recon')
+            
+        st.download_button(
+            label="📄 Download Full Report (Summary + Recon)", 
+            data=output_full.getvalue(), 
+            file_name=f"Report_Full_{input_vessel}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
 
+    # --- TAB 2: DASHBOARD ---
     with tab2:
         st.markdown("##### Ringkasan Volume")
         summary_data = {
@@ -410,6 +380,7 @@ if st.session_state['extracted_data']:
         ).properties(height=300).interactive()
         st.altair_chart(chart, use_container_width=True)
 
+    # --- TAB 3: COMBINE ---
     with tab3:
         st.markdown("##### Combine Multi-Kapal")
         options = df['NO'].tolist()
