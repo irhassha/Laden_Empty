@@ -42,7 +42,7 @@ if 'images' not in st.session_state:
 # --- FUNGSI UTILITY ---
 @st.cache_data(ttl=300) 
 def get_prioritized_models(api_key):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    url = f"[https://generativelanguage.googleapis.com/v1beta/models?key=](https://generativelanguage.googleapis.com/v1beta/models?key=){api_key}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
@@ -113,14 +113,14 @@ with st.sidebar:
         st.session_state['extracted_data'] = []
         st.session_state['images'] = {} 
         st.rerun()
-    st.info("Versi Aplikasi: 2.2 (Recon T/S DG)\nFitur: T/S DG Separation")
+    st.info("Versi Aplikasi: 2.3 (Debug Mode)\nFitur: Enhanced Error Handling")
 
 # --- HEADER ---
 st.title("⚓ RBM Auto Tally")
 st.markdown("Automasi ekstraksi data operasional pelabuhan dari gambar laporan ke Excel.")
 st.divider()
 
-# --- INPUT AREA (UPDATED: Simple Upload Only) ---
+# --- INPUT AREA ---
 st.subheader("Upload Laporan")
 uploaded_files = st.file_uploader("Upload Potongan Gambar Tabel", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
 
@@ -134,10 +134,12 @@ def extract_table_data(image, api_key):
     candidate_models = get_prioritized_models(api_key)
     if not candidate_models: candidate_models = ["gemini-1.5-flash", "gemini-1.5-flash-latest"]
     
+    last_error_msg = "Unknown Error"
+
     for model_name in candidate_models:
         if "experimental" in model_name: continue
 
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){model_name}:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         
         prompt_text = """
@@ -151,9 +153,9 @@ def extract_table_data(image, api_key):
         - SHIFTING (RESTOW): 20, 40, 45
         
         TUGAS PENTING:
-        1. DG (Dangerous Goods): Jika ada baris/kolom DG (baik normal maupun T/S), ekstrak angkanya.
-        2. HATCH COVER: Cari label spesifik "Hatch Cover". Jika tidak ada atau angka terlihat seperti Total (misal > 200), ISI DENGAN 0. Jangan salah ambil angka Total Box.
-        3. Ekstrak angka integer dari setiap perpotongan baris dan kolom. Jika sel kosong atau strip (-), isi dengan 0.
+        1. DG (Dangerous Goods): Jika ada baris/kolom DG, ekstrak angkanya.
+        2. HATCH COVER: Cari label "Hatch Cover". Jika tidak ada/ragu, ISI 0.
+        3. Ekstrak angka integer. Jika sel kosong/strip, ISI 0.
         
         OUTPUT JSON FORMAT (snake_case):
         {
@@ -177,14 +179,34 @@ def extract_table_data(image, api_key):
         try:
             response = requests.post(url, headers=headers, data=json.dumps(payload))
             if response.status_code == 200:
-                clean_json = response.json()['candidates'][0]['content']['parts'][0]['text'].replace('```json', '').replace('```', '').strip()
-                return json.loads(clean_json)
-            elif response.status_code == 429: continue 
-            elif response.status_code in [404, 500, 503]: continue 
-            else: break 
-        except Exception as e: continue
+                try:
+                    text_response = response.json()['candidates'][0]['content']['parts'][0]['text']
+                    # Lebih robust dalam membersihkan JSON
+                    clean_json = text_response.strip()
+                    if "```json" in clean_json:
+                        clean_json = clean_json.split("```json")[1].split("```")[0].strip()
+                    elif "```" in clean_json:
+                        clean_json = clean_json.split("```")[1].strip()
+                    
+                    return json.loads(clean_json)
+                except Exception as e:
+                    last_error_msg = f"Format JSON Salah ({model_name}): {e}"
+                    continue # Coba model lain
+                    
+            elif response.status_code == 429: 
+                last_error_msg = f"Limit Kuota ({model_name}). Mencoba model lain..."
+                continue 
+            elif response.status_code in [404, 500, 503]: 
+                last_error_msg = f"Server Error {response.status_code} ({model_name})"
+                continue 
+            else: 
+                last_error_msg = f"API Error {response.status_code}: {response.text}"
+                break 
+        except Exception as e: 
+            last_error_msg = f"Koneksi Gagal: {e}"
+            continue
 
-    st.error("Gagal memproses gambar. Coba lagi atau cek API Key.")
+    st.error(f"Gagal memproses gambar. Detail Error: {last_error_msg}")
     return None
 
 # --- TOMBOL PROSES ---
@@ -204,7 +226,6 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                 # --- CALCULATIONS & MAPPING (MERGE DG TO FULL) ---
                 
                 # Import Summary (DG is merged into Full Laden in calculation)
-                # Note: Full in summary = Full Raw + DG Raw
                 i_l_20 = data.get('imp_20_full',0) + data.get('imp_20_dg',0) + data.get('imp_20_reefer',0) + data.get('imp_20_oog',0)
                 i_l_40 = data.get('imp_40_full',0) + data.get('imp_40_dg',0) + data.get('imp_40_reefer',0) + data.get('imp_40_oog',0)
                 i_l_45 = data.get('imp_45_full',0) + data.get('imp_45_dg',0) + data.get('imp_45_reefer',0) + data.get('imp_45_oog',0)
@@ -222,8 +243,7 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                 e_e_40 = data.get('exp_40_empty',0)
                 e_e_45 = data.get('exp_45_empty',0)
 
-                # TS Summary (DG is NOT merged to TS Full, usually kept separate or ignored in general summary unless specified. Assuming standard TS logic for summary)
-                # Note: Standard TS Summary usually just sums boxes.
+                # TS Summary (DG kept separate or aggregated based on standard logic)
                 ts_l_20 = data.get('imp_20_ts_full',0) + data.get('imp_20_ts_dg',0) + data.get('imp_20_ts_oog',0) + data.get('exp_20_ts_full',0) + data.get('exp_20_ts_dg',0) + data.get('exp_20_ts_oog',0)
                 ts_l_40 = data.get('imp_40_ts_full',0) + data.get('imp_40_ts_dg',0) + data.get('imp_40_ts_oog',0) + data.get('exp_40_ts_full',0) + data.get('exp_40_ts_dg',0) + data.get('exp_40_ts_oog',0)
                 ts_l_45 = data.get('imp_45_ts_full',0) + data.get('imp_45_ts_dg',0) + data.get('imp_45_ts_oog',0) + data.get('exp_45_ts_full',0) + data.get('exp_45_ts_dg',0) + data.get('exp_45_ts_oog',0)
@@ -250,7 +270,7 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
 
                 data_id = len(st.session_state['extracted_data']) + 1
                 
-                # Logic Guard untuk Hatch Cover (Jika nilai tidak masuk akal > 500, set 0)
+                # Logic Guard untuk Hatch Cover
                 hatch_val = data.get('hatch_cover', 0)
                 if hatch_val > 500:
                     hatch_val = 0
