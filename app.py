@@ -10,7 +10,7 @@ from PIL import Image
 # --- KONFIGURASI HALAMAN ---
 st.set_page_config(
     layout="wide", 
-    page_title="NPCT1 Auto Tally",
+    page_title="RBM Auto Tally",
     page_icon="⚓"
 )
 
@@ -113,22 +113,16 @@ with st.sidebar:
         st.session_state['extracted_data'] = []
         st.session_state['images'] = {} 
         st.rerun()
-    st.info("Versi Aplikasi: 1.9.2 (Simple Name)\nFitur: Default Vessel Name")
+    st.info("Versi Aplikasi: 2.0 (RBM Auto Tally)")
 
 # --- HEADER ---
-st.title("⚓ NPCT1 Tally Extractor")
+st.title("⚓ RBM Auto Tally")
 st.markdown("Automasi ekstraksi data operasional pelabuhan dari gambar laporan ke Excel.")
 st.divider()
 
-# --- INPUT AREA ---
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("1. Identitas Kapal")
-    input_vessel = st.text_input("Nama Kapal (Vessel Name)", value="Vessel", placeholder="Contoh: MV. SINAR SUNDA")
-    input_service = st.text_input("Service / Voyage", value="Service A", placeholder="Contoh: 001N")
-with col2:
-    st.subheader("2. Upload Laporan")
-    uploaded_files = st.file_uploader("Upload Potongan Gambar Tabel", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+# --- INPUT AREA (UPDATED: Simple Upload Only) ---
+st.subheader("Upload Laporan")
+uploaded_files = st.file_uploader("Upload Potongan Gambar Tabel", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
 
 # --- FUNGSI EKSTRAKSI ---
 def extract_table_data(image, api_key):
@@ -248,9 +242,9 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
 
                 data_id = len(st.session_state['extracted_data']) + 1
 
-                # Row Dict
+                # Row Dict (UPDATED: AUTO NAME)
                 row = {
-                    "NO": data_id, "Vessel": input_vessel, "Service Name": input_service, "Remark": 0,
+                    "NO": data_id, "Vessel": f"Vessel ({data_id})", "Service Name": "-", "Remark": 0,
                     
                     "IMP_LADEN_20": i_l_20, "IMP_LADEN_40": i_l_40, "IMP_LADEN_45": i_l_45, "IMP_EMPTY_20": i_e_20, "IMP_EMPTY_40": i_e_40, "IMP_EMPTY_45": i_e_45,
                     "TOTAL BOX IMPORT": sum([i_l_20,i_l_40,i_l_45,i_e_20,i_e_40,i_e_45]), "TEUS IMPORT": teus_imp,
@@ -326,7 +320,7 @@ if st.session_state['extracted_data']:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             edited_df.to_excel(writer, index=False, sheet_name='Summary')
-        c2.download_button("📥 Excel Summary", data=output.getvalue(), file_name=f"Summary_{input_vessel}.xlsx", use_container_width=True)
+        c2.download_button("📥 Excel Summary", data=output.getvalue(), file_name=f"Summary_Data.xlsx", use_container_width=True)
 
     # --- TAB RECON: GRANULAR ---
     with tab_recon:
@@ -383,7 +377,7 @@ if st.session_state['extracted_data']:
         with pd.ExcelWriter(output_recon, engine='openpyxl') as writer:
             # Download hasil edit (filtered/unfiltered)
             edited_df_recon.to_excel(writer, index=False, sheet_name='Recon')
-        c_r2.download_button("📥 Excel Recon", data=output_recon.getvalue(), file_name=f"Recon_{input_vessel}.xlsx", use_container_width=True)
+        c_r2.download_button("📥 Excel Recon", data=output_recon.getvalue(), file_name=f"Recon_Data.xlsx", use_container_width=True)
 
     # --- TAB 3: COMBINE ---
     with tab3:
