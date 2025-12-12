@@ -113,7 +113,7 @@ with st.sidebar:
         st.session_state['extracted_data'] = []
         st.session_state['images'] = {} 
         st.rerun()
-    st.info("Versi Aplikasi: 2.0 (RBM Auto Tally)")
+    st.info("Versi Aplikasi: 2.1 (DG Fix)\nFitur: Merge DG to Full & Hatch Fix")
 
 # --- HEADER ---
 st.title("⚓ RBM Auto Tally")
@@ -144,23 +144,26 @@ def extract_table_data(image, api_key):
         Analisis gambar tabel operasi pelabuhan ini. Saya butuh data detail (granular) per sel matriks.
         
         STRUKTUR DATA DI GAMBAR:
-        Baris (Rows): FULL, REEFER, OOG, T/S FULL, T/S EMPTY, T/S OOG, EMPTY
+        Baris (Rows): FULL, REEFER, OOG, DG (Dangerous Goods), T/S FULL, T/S EMPTY, T/S OOG, EMPTY
         Kolom (Cols): 
         - DISCHARGE (IMPORT): 20, 40, 45
         - LOADING (EXPORT): 20, 40, 45
         - SHIFTING (RESTOW): 20, 40, 45
         
-        TUGAS: Ekstrak angka integer dari setiap perpotongan baris dan kolom. Jika sel kosong atau strip (-), isi dengan 0.
+        TUGAS PENTING:
+        1. DG (Dangerous Goods): Jika ada baris/kolom DG, ekstrak angkanya ke field '_dg'.
+        2. HATCH COVER: Cari label spesifik "Hatch Cover". Jika tidak ada atau angka terlihat seperti Total (misal > 200), ISI DENGAN 0. Jangan salah ambil angka Total Box.
+        3. Ekstrak angka integer dari setiap perpotongan baris dan kolom. Jika sel kosong atau strip (-), isi dengan 0.
         
         OUTPUT JSON FORMAT (snake_case):
         {
-            "imp_20_full": int, "imp_20_reefer": int, "imp_20_oog": int, "imp_20_ts_full": int, "imp_20_ts_empty": int, "imp_20_ts_oog": int, "imp_20_empty": int,
-            "imp_40_full": int, "imp_40_reefer": int, "imp_40_oog": int, "imp_40_ts_full": int, "imp_40_ts_empty": int, "imp_40_ts_oog": int, "imp_40_empty": int,
-            "imp_45_full": int, "imp_45_reefer": int, "imp_45_oog": int, "imp_45_ts_full": int, "imp_45_ts_empty": int, "imp_45_ts_oog": int, "imp_45_empty": int,
+            "imp_20_full": int, "imp_20_dg": int, "imp_20_reefer": int, "imp_20_oog": int, "imp_20_ts_full": int, "imp_20_ts_empty": int, "imp_20_ts_oog": int, "imp_20_empty": int,
+            "imp_40_full": int, "imp_40_dg": int, "imp_40_reefer": int, "imp_40_oog": int, "imp_40_ts_full": int, "imp_40_ts_empty": int, "imp_40_ts_oog": int, "imp_40_empty": int,
+            "imp_45_full": int, "imp_45_dg": int, "imp_45_reefer": int, "imp_45_oog": int, "imp_45_ts_full": int, "imp_45_ts_empty": int, "imp_45_ts_oog": int, "imp_45_empty": int,
 
-            "exp_20_full": int, "exp_20_reefer": int, "exp_20_oog": int, "exp_20_ts_full": int, "exp_20_ts_empty": int, "exp_20_ts_oog": int, "exp_20_empty": int,
-            "exp_40_full": int, "exp_40_reefer": int, "exp_40_oog": int, "exp_40_ts_full": int, "exp_40_ts_empty": int, "exp_40_ts_oog": int, "exp_40_empty": int,
-            "exp_45_full": int, "exp_45_reefer": int, "exp_45_oog": int, "exp_45_ts_full": int, "exp_45_ts_empty": int, "exp_45_ts_oog": int, "exp_45_empty": int,
+            "exp_20_full": int, "exp_20_dg": int, "exp_20_reefer": int, "exp_20_oog": int, "exp_20_ts_full": int, "exp_20_ts_empty": int, "exp_20_ts_oog": int, "exp_20_empty": int,
+            "exp_40_full": int, "exp_40_dg": int, "exp_40_reefer": int, "exp_40_oog": int, "exp_40_ts_full": int, "exp_40_ts_empty": int, "exp_40_ts_oog": int, "exp_40_empty": int,
+            "exp_45_full": int, "exp_45_dg": int, "exp_45_reefer": int, "exp_45_oog": int, "exp_45_ts_full": int, "exp_45_ts_empty": int, "exp_45_ts_oog": int, "exp_45_empty": int,
 
             "shift_20_full": int, "shift_20_reefer": int, "shift_20_empty": int,
             "shift_40_full": int, "shift_40_reefer": int, "shift_40_empty": int,
@@ -198,19 +201,23 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
             data = extract_table_data(image, api_key)
             
             if data:
-                # --- CALCULATIONS & MAPPING ---
-                # Import Summary
-                i_l_20 = data.get('imp_20_full',0) + data.get('imp_20_reefer',0) + data.get('imp_20_oog',0)
-                i_l_40 = data.get('imp_40_full',0) + data.get('imp_40_reefer',0) + data.get('imp_40_oog',0)
-                i_l_45 = data.get('imp_45_full',0) + data.get('imp_45_reefer',0) + data.get('imp_45_oog',0)
+                # --- CALCULATIONS & MAPPING (MERGE DG TO FULL) ---
+                
+                # Import Summary (DG is merged into Full Laden in calculation)
+                # Note: Full in summary = Full Raw + DG Raw
+                i_l_20 = data.get('imp_20_full',0) + data.get('imp_20_dg',0) + data.get('imp_20_reefer',0) + data.get('imp_20_oog',0)
+                i_l_40 = data.get('imp_40_full',0) + data.get('imp_40_dg',0) + data.get('imp_40_reefer',0) + data.get('imp_40_oog',0)
+                i_l_45 = data.get('imp_45_full',0) + data.get('imp_45_dg',0) + data.get('imp_45_reefer',0) + data.get('imp_45_oog',0)
+                
                 i_e_20 = data.get('imp_20_empty',0)
                 i_e_40 = data.get('imp_40_empty',0)
                 i_e_45 = data.get('imp_45_empty',0)
                 
                 # Export Summary
-                e_l_20 = data.get('exp_20_full',0) + data.get('exp_20_reefer',0) + data.get('exp_20_oog',0)
-                e_l_40 = data.get('exp_40_full',0) + data.get('exp_40_reefer',0) + data.get('exp_40_oog',0)
-                e_l_45 = data.get('exp_45_full',0) + data.get('exp_45_reefer',0) + data.get('exp_45_oog',0)
+                e_l_20 = data.get('exp_20_full',0) + data.get('exp_20_dg',0) + data.get('exp_20_reefer',0) + data.get('exp_20_oog',0)
+                e_l_40 = data.get('exp_40_full',0) + data.get('exp_40_dg',0) + data.get('exp_40_reefer',0) + data.get('exp_40_oog',0)
+                e_l_45 = data.get('exp_45_full',0) + data.get('exp_45_dg',0) + data.get('exp_45_reefer',0) + data.get('exp_45_oog',0)
+                
                 e_e_20 = data.get('exp_20_empty',0)
                 e_e_40 = data.get('exp_40_empty',0)
                 e_e_45 = data.get('exp_45_empty',0)
@@ -241,6 +248,11 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                 grand_tot_teus = teus_imp + teus_exp + teus_ts + teus_shift
 
                 data_id = len(st.session_state['extracted_data']) + 1
+                
+                # Logic Guard untuk Hatch Cover (Jika nilai tidak masuk akal > 500, set 0)
+                hatch_val = data.get('hatch_cover', 0)
+                if hatch_val > 500:
+                    hatch_val = 0
 
                 # Row Dict (UPDATED: AUTO NAME)
                 row = {
@@ -258,30 +270,36 @@ if st.button("🚀 Mulai Proses Ekstraksi", type="primary", use_container_width=
                     "TOTAL BOX SHIFTING": tot_shift, "TEUS SHIFTING": teus_shift,
                     "Total (Boxes)": grand_tot_box, "Total Teus": grand_tot_teus,
 
-                    # RECON DATA
-                    "IMP_20_Full": data.get('imp_20_full',0), "IMP_20_Reefer": data.get('imp_20_reefer',0), "IMP_20_OOG": data.get('imp_20_oog',0),
+                    # RECON DATA (Full includes DG now)
+                    "IMP_20_Full": data.get('imp_20_full',0) + data.get('imp_20_dg',0), # <--- MERGE DG TO FULL
+                    "IMP_20_Reefer": data.get('imp_20_reefer',0), "IMP_20_OOG": data.get('imp_20_oog',0),
                     "IMP_20_TS_Full": data.get('imp_20_ts_full',0), "IMP_20_TS_Reefer": 0, "IMP_20_TS_OOG": data.get('imp_20_ts_oog',0), "IMP_20_TS_DG": 0, "IMP_20_TS_Empty": data.get('imp_20_ts_empty',0), "IMP_20_Empty": data.get('imp_20_empty',0), "IMP_20_LCL": 0,
                     
-                    "IMP_40_Full": data.get('imp_40_full',0), "IMP_40_Reefer": data.get('imp_40_reefer',0), "IMP_40_OOG": data.get('imp_40_oog',0),
+                    "IMP_40_Full": data.get('imp_40_full',0) + data.get('imp_40_dg',0), # <--- MERGE DG TO FULL
+                    "IMP_40_Reefer": data.get('imp_40_reefer',0), "IMP_40_OOG": data.get('imp_40_oog',0),
                     "IMP_40_TS_Full": data.get('imp_40_ts_full',0), "IMP_40_TS_Reefer": 0, "IMP_40_TS_OOG": data.get('imp_40_ts_oog',0), "IMP_40_TS_DG": 0, "IMP_40_TS_Empty": data.get('imp_40_ts_empty',0), "IMP_40_Empty": data.get('imp_40_empty',0), "IMP_40_LCL": 0,
                     
-                    "IMP_45_Full": data.get('imp_45_full',0), "IMP_45_Reefer": data.get('imp_45_reefer',0), "IMP_45_OOG": data.get('imp_45_oog',0),
+                    "IMP_45_Full": data.get('imp_45_full',0) + data.get('imp_45_dg',0), # <--- MERGE DG TO FULL
+                    "IMP_45_Reefer": data.get('imp_45_reefer',0), "IMP_45_OOG": data.get('imp_45_oog',0),
                     "IMP_45_TS_Full": data.get('imp_45_ts_full',0), "IMP_45_TS_Reefer": 0, "IMP_45_TS_OOG": data.get('imp_45_ts_oog',0), "IMP_45_TS_DG": 0, "IMP_45_TS_Empty": data.get('imp_45_ts_empty',0), "IMP_45_Empty": data.get('imp_45_empty',0), "IMP_45_LCL": 0,
 
-                    "EXP_20_Full": data.get('exp_20_full',0), "EXP_20_Reefer": data.get('exp_20_reefer',0), "EXP_20_OOG": data.get('exp_20_oog',0),
+                    "EXP_20_Full": data.get('exp_20_full',0) + data.get('exp_20_dg',0), # <--- MERGE DG TO FULL
+                    "EXP_20_Reefer": data.get('exp_20_reefer',0), "EXP_20_OOG": data.get('exp_20_oog',0),
                     "EXP_20_TS_Full": data.get('exp_20_ts_full',0), "EXP_20_TS_Reefer": 0, "EXP_20_TS_OOG": data.get('exp_20_ts_oog',0), "EXP_20_TS_DG": 0, "EXP_20_TS_Empty": data.get('exp_20_ts_empty',0), "EXP_20_Empty": data.get('exp_20_empty',0), "EXP_20_LCL": 0,
                     
-                    "EXP_40_Full": data.get('exp_40_full',0), "EXP_40_Reefer": data.get('exp_40_reefer',0), "EXP_40_OOG": data.get('exp_40_oog',0),
+                    "EXP_40_Full": data.get('exp_40_full',0) + data.get('exp_40_dg',0), # <--- MERGE DG TO FULL
+                    "EXP_40_Reefer": data.get('exp_40_reefer',0), "EXP_40_OOG": data.get('exp_40_oog',0),
                     "EXP_40_TS_Full": data.get('exp_40_ts_full',0), "EXP_40_TS_Reefer": 0, "EXP_40_TS_OOG": data.get('exp_40_ts_oog',0), "EXP_40_TS_DG": 0, "EXP_40_TS_Empty": data.get('exp_40_ts_empty',0), "EXP_40_Empty": data.get('exp_40_empty',0), "EXP_40_LCL": 0,
                     
-                    "EXP_45_Full": data.get('exp_45_full',0), "EXP_45_Reefer": data.get('exp_45_reefer',0), "EXP_45_OOG": data.get('exp_45_oog',0),
+                    "EXP_45_Full": data.get('exp_45_full',0) + data.get('exp_45_dg',0), # <--- MERGE DG TO FULL
+                    "EXP_45_Reefer": data.get('exp_45_reefer',0), "EXP_45_OOG": data.get('exp_45_oog',0),
                     "EXP_45_TS_Full": data.get('exp_45_ts_full',0), "EXP_45_TS_Reefer": 0, "EXP_45_TS_OOG": data.get('exp_45_ts_oog',0), "EXP_45_TS_DG": 0, "EXP_45_TS_Empty": data.get('exp_45_ts_empty',0), "EXP_45_Empty": data.get('exp_45_empty',0), "EXP_45_LCL": 0,
 
                     "SHIFT_20_Full": data.get('shift_20_full',0), "SHIFT_20_Reefer": data.get('shift_20_reefer',0), "SHIFT_20_OOG": 0, "SHIFT_20_TS_Full": 0, "SHIFT_20_TS_Reefer": 0, "SHIFT_20_TS_OOG": 0, "SHIFT_20_TS_DG": 0, "SHIFT_20_TS_Empty": 0, "SHIFT_20_Empty": data.get('shift_20_empty',0), "SHIFT_20_LCL": 0,
                     "SHIFT_40_Full": data.get('shift_40_full',0), "SHIFT_40_Reefer": data.get('shift_40_reefer',0), "SHIFT_40_OOG": 0, "SHIFT_40_TS_Full": 0, "SHIFT_40_TS_Reefer": 0, "SHIFT_40_TS_OOG": 0, "SHIFT_40_TS_DG": 0, "SHIFT_40_TS_Empty": 0, "SHIFT_40_Empty": data.get('shift_40_empty',0), "SHIFT_40_LCL": 0,
                     "SHIFT_45_Full": data.get('shift_45_full',0), "SHIFT_45_Reefer": data.get('shift_45_reefer',0), "SHIFT_45_OOG": 0, "SHIFT_45_TS_Full": 0, "SHIFT_45_TS_Reefer": 0, "SHIFT_45_TS_OOG": 0, "SHIFT_45_TS_DG": 0, "SHIFT_45_TS_Empty": 0, "SHIFT_45_Empty": data.get('shift_45_empty',0), "SHIFT_45_LCL": 0,
                     
-                    "Hatch Cover": data.get('hatch_cover', 0)
+                    "Hatch Cover": hatch_val
                 }
                 
                 st.session_state['extracted_data'].append(row)
