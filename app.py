@@ -5,7 +5,6 @@ import base64
 import json
 import io
 import time
-import altair as alt
 from PIL import Image
 
 # --- KONFIGURASI HALAMAN ---
@@ -114,7 +113,7 @@ with st.sidebar:
         st.session_state['extracted_data'] = []
         st.session_state['images'] = {} 
         st.rerun()
-    st.info("Versi Aplikasi: 1.8 (Polished)\nFitur: Smart Filter & Unified Export")
+    st.info("Versi Aplikasi: 1.9 (Reverted)\nFitur: Smart Filter Recon")
 
 # --- HEADER ---
 st.title("⚓ NPCT1 Tally Extractor")
@@ -308,9 +307,9 @@ if st.session_state['extracted_data']:
     # Define Column Groups
     summary_cols = ["NO", "Vessel", "Service Name", "Remark", "IMP_LADEN_20", "IMP_LADEN_40", "IMP_LADEN_45", "IMP_EMPTY_20", "IMP_EMPTY_40", "IMP_EMPTY_45", "TOTAL BOX IMPORT", "TEUS IMPORT", "EXP_LADEN_20", "EXP_LADEN_40", "EXP_LADEN_45", "EXP_EMPTY_20", "EXP_EMPTY_40", "EXP_EMPTY_45", "TOTAL BOX EXPORT", "TEUS EXPORT", "TS_LADEN_20", "TS_LADEN_40", "TS_LADEN_45", "TS_EMPTY_20", "TS_EMPTY_40", "TS_EMPTY_45", "TOTAL BOX T/S", "TEUS T/S", "TOTAL BOX SHIFTING", "TEUS SHIFTING", "Total (Boxes)", "Total Teus"]
     recon_cols = ["Vessel", "Service Name"] + [c for c in df.columns if c not in summary_cols and c not in ["NO", "Vessel", "Service Name", "Remark"]]
-    recon_cols.append("Hatch Cover") # Ensure order if needed, but simple filtering is easier
+    recon_cols.append("Hatch Cover")
 
-    tab1, tab_recon, tab2, tab3 = st.tabs(["📋 Data Detail (Edit)", "🔬 Recon (Detail - Edit)", "📊 Dashboard", "➕ Gabung Data"])
+    tab1, tab_recon, tab3 = st.tabs(["📋 Data Detail (Edit)", "🔬 Recon (Detail - Edit)", "➕ Gabung Data"])
     
     # --- TAB 1: SUMMARY ---
     with tab1:
@@ -319,11 +318,15 @@ if st.session_state['extracted_data']:
         
         edited_df = st.data_editor(df[summary_cols], num_rows="dynamic", use_container_width=True, column_config={"NO": st.column_config.NumberColumn(disabled=True)})
         
-        # Download Button untuk Summary Saja (Legacy)
+        # Download Button untuk Summary Saja
+        c1, c2 = st.columns([3,1])
+        c1.caption("Copy data:")
+        c1.code(edited_df.to_csv(index=False, sep='\t'), language='csv')
+        
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             edited_df.to_excel(writer, index=False, sheet_name='Summary')
-        st.download_button("📥 Excel Summary Only", data=output.getvalue(), file_name=f"Summary_{input_vessel}.xlsx")
+        c2.download_button("📥 Excel Summary", data=output.getvalue(), file_name=f"Summary_{input_vessel}.xlsx", use_container_width=True)
 
     # --- TAB RECON: GRANULAR ---
     with tab_recon:
@@ -331,7 +334,6 @@ if st.session_state['extracted_data']:
         render_image_viewer(df, "recon") # Unified Viewer
         
         # --- FITUR SMART FILTER ---
-        # Ambil kolom Recon yang relevan (semua yg tidak ada di summary)
         cols_for_recon = [c for c in df.columns if c not in summary_cols and c != "NO"]
         df_recon_base = df[cols_for_recon]
         
@@ -342,7 +344,6 @@ if st.session_state['extracted_data']:
             hide_zeros = st.checkbox("Sembunyikan kolom kosong (0)", value=True)
         
         if hide_zeros:
-            # Filter kolom yang punya setidaknya satu nilai non-zero
             valid_cols = [c for c in df_recon_base.columns if df_recon_base[c].sum() != 0 or c in ["Vessel", "Service Name"]]
             df_recon_display = df_recon_base[valid_cols]
         else:
@@ -350,35 +351,16 @@ if st.session_state['extracted_data']:
 
         edited_df_recon = st.data_editor(df_recon_display, num_rows="dynamic", use_container_width=True)
         
-        # --- FITUR DOWNLOAD ALL-IN-ONE ---
-        st.write("")
-        st.markdown("### 📥 Download Laporan Lengkap")
-        output_full = io.BytesIO()
-        with pd.ExcelWriter(output_full, engine='openpyxl') as writer:
-            edited_df.to_excel(writer, index=False, sheet_name='Summary')
-            # Untuk sheet Recon, kita pakai data lengkap (termasuk 0) agar format standar tetap terjaga
-            df[cols_for_recon].to_excel(writer, index=False, sheet_name='Recon')
-            
-        st.download_button(
-            label="📄 Download Full Report (Summary + Recon)", 
-            data=output_full.getvalue(), 
-            file_name=f"Report_Full_{input_vessel}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            use_container_width=True
-        )
-
-    # --- TAB 2: DASHBOARD ---
-    with tab2:
-        st.markdown("##### Ringkasan Volume")
-        summary_data = {
-            "Activity": ["Import", "Export", "Transhipment", "Shifting"],
-            "Total TEUs": [df['TEUS IMPORT'].sum(), df['TEUS EXPORT'].sum(), df['TEUS T/S'].sum(), df['TEUS SHIFTING'].sum()]
-        }
-        chart = alt.Chart(pd.DataFrame(summary_data)).mark_bar().encode(
-            x='Total TEUs', y=alt.Y('Activity', sort='-x'), color='Activity', tooltip=['Activity', 'Total TEUs']
-        ).properties(height=300).interactive()
-        st.altair_chart(chart, use_container_width=True)
+        # Download Button untuk Recon Saja
+        c_r1, c_r2 = st.columns([3,1])
+        c_r1.caption("Copy data recon:")
+        c_r1.code(edited_df_recon.to_csv(index=False, sep='\t'), language='csv')
+        
+        output_recon = io.BytesIO()
+        with pd.ExcelWriter(output_recon, engine='openpyxl') as writer:
+            # Download hasil edit (filtered/unfiltered)
+            edited_df_recon.to_excel(writer, index=False, sheet_name='Recon')
+        c_r2.download_button("📥 Excel Recon", data=output_recon.getvalue(), file_name=f"Recon_{input_vessel}.xlsx", use_container_width=True)
 
     # --- TAB 3: COMBINE ---
     with tab3:
