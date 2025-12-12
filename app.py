@@ -90,7 +90,7 @@ with st.sidebar:
         st.session_state['extracted_data'] = []
         st.session_state['images'] = {} # Reset gambar juga
         st.rerun()
-    st.info("Versi Aplikasi: 1.6 (Interactive View)\nMode: Granular Data & Image Viewer")
+    st.info("Versi Aplikasi: 1.7 (Full Interactive)\nMode: Editable Recon & Image Viewer")
 
 # --- HEADER APLIKASI ---
 st.title("⚓ NPCT1 Tally Extractor")
@@ -323,12 +323,12 @@ if st.session_state['extracted_data']:
     
     recon_cols += ["Hatch Cover"]
 
-    tab1, tab_recon, tab2, tab3 = st.tabs(["📋 Data Detail (Edit)", "🔬 Recon (Detail)", "📊 Dashboard", "➕ Gabung Data"])
+    tab1, tab_recon, tab2, tab3 = st.tabs(["📋 Data Detail (Edit)", "🔬 Recon (Detail - Edit)", "📊 Dashboard", "➕ Gabung Data"])
     
     with tab1:
         st.markdown("##### Hasil Ekstraksi (Summary)")
         
-        # --- FITUR VIEWER GAMBAR INTERAKTIF ---
+        # --- FITUR VIEWER GAMBAR INTERAKTIF TAB 1 ---
         st.markdown("---")
         c_view1, c_view2 = st.columns([1, 2])
         
@@ -336,7 +336,7 @@ if st.session_state['extracted_data']:
             st.info("🔍 **Cek Gambar Asli**")
             # Dropdown untuk memilih kapal
             vessel_list = df['Vessel'].unique()
-            selected_vessel_view = st.selectbox("Pilih Kapal untuk ditampilkan:", vessel_list)
+            selected_vessel_view = st.selectbox("Pilih Kapal:", vessel_list, key="v_sel_tab1")
             
             # Ambil ID kapal yang dipilih
             selected_row = df[df['Vessel'] == selected_vessel_view].iloc[0]
@@ -347,7 +347,7 @@ if st.session_state['extracted_data']:
             if selected_id in st.session_state['images']:
                 st.image(st.session_state['images'][selected_id], caption=f"Dokumen Asli: {selected_vessel_view}", use_container_width=True)
             else:
-                st.warning("Gambar asli tidak ditemukan di memori (mungkin sesi telah habis).")
+                st.warning("Gambar asli tidak ditemukan.")
         st.markdown("---")
         
         edited_df = st.data_editor(df[summary_cols], num_rows="dynamic", use_container_width=True, column_config={"NO": st.column_config.NumberColumn(disabled=True)})
@@ -364,15 +364,39 @@ if st.session_state['extracted_data']:
     with tab_recon:
         st.markdown("##### Data Recon (Full Detail)")
         st.caption("Berisi rincian lengkap untuk rekonsiliasi (DG, LCL, dll diset 0 jika tidak ada di gambar).")
+        
+        # --- FITUR VIEWER GAMBAR INTERAKTIF TAB RECON (Copied logic) ---
+        st.markdown("---")
+        c_recon_view1, c_recon_view2 = st.columns([1, 2])
+        
+        with c_recon_view1:
+            st.info("🔍 **Cek Gambar Asli**")
+            # Dropdown untuk memilih kapal (key harus beda biar gak bentrok)
+            vessel_list_recon = df['Vessel'].unique()
+            selected_vessel_recon = st.selectbox("Pilih Kapal:", vessel_list_recon, key="v_sel_recon")
+            
+            # Ambil ID kapal yang dipilih
+            selected_row_recon = df[df['Vessel'] == selected_vessel_recon].iloc[0]
+            selected_id_recon = selected_row_recon['NO']
+            
+        with c_recon_view2:
+            if selected_id_recon in st.session_state['images']:
+                st.image(st.session_state['images'][selected_id_recon], caption=f"Dokumen Asli: {selected_vessel_recon}", use_container_width=True)
+            else:
+                st.warning("Gambar asli tidak ditemukan.")
+        st.markdown("---")
+
+        # Menggunakan st.data_editor agar bisa diedit
         df_recon = df[recon_cols]
-        st.dataframe(df_recon, use_container_width=True)
+        edited_df_recon = st.data_editor(df_recon, num_rows="dynamic", use_container_width=True)
         
         c1, c2 = st.columns([3,1])
-        c1.code(df_recon.to_csv(index=False, sep='\t'), language='csv')
+        c1.code(edited_df_recon.to_csv(index=False, sep='\t'), language='csv')
         
         output_recon = io.BytesIO()
         with pd.ExcelWriter(output_recon, engine='openpyxl') as writer:
-            df_recon.to_excel(writer, index=False, sheet_name='Recon')
+            # Gunakan hasil edit untuk didownload
+            edited_df_recon.to_excel(writer, index=False, sheet_name='Recon')
         c2.download_button("📥 Excel Recon", data=output_recon.getvalue(), file_name=f"Recon_{input_vessel}.xlsx", use_container_width=True)
 
     with tab2:
